@@ -35,8 +35,9 @@ pip3 install .
 ## Examples
 Examples are provided in the [`examples`](./examples) directory. They include:
 
- - [`examples/ode_demo_petsc.py`](./examples/ode_demo_petsc.py) Simplest example that demonstrate how to fit a spiral ODE 
- - [`examples/train-Cifar10.py`](./examples/train-Cifar10.py)
+ - [`examples/ode_demo_petsc.py`](./examples/ode_demo_petsc.py) Simplest example that demonstrate how to fit a spiral ODE
+ - [`examples/train-Cifar10.py`](./examples/train-Cifar10.py) Image classification on the CIFAR-10 dataset
+ - [`ffjord-pnode/train_tabular.py`](./ffjord-pnode/train_tabular.py) Continuous normalizing flow on the datasets from MAF
 
 ## Basic usage
 This library provides one class `ODEPetsc` with three interface functions:
