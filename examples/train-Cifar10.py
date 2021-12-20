@@ -64,7 +64,9 @@ os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 is_use_cuda = torch.cuda.is_available()
 device = torch.device('cuda:0' if is_use_cuda else 'cpu')
 tensor_type = torch.float32
-
+if is_use_cuda:
+    import nvidia_smi
+    nvidia_smi.nvmlInit()
 from models.sqnxt_PETSc import SqNxt_23_1x, lr_schedule
 if args.save == None:
     args.save = 'sqnxt/' + args.method  + '_Nt_' + str(args.Nt) + '/'
@@ -149,7 +151,7 @@ net_test = SqNxt_23_1x(10, ODEBlock, Train=False)
 net_test.load_state_dict(net.state_dict())
 
 net.apply(conv_init)
-print(net)
+#print(net)
 
 if is_use_cuda:
     net.to(device)
@@ -201,6 +203,9 @@ def train(epoch):
         optimizer.zero_grad()
         outputs = net(inputs)
         loss = criterion(outputs, labels)
+        if is_use_cuda:
+            handle = nvidia_smi.nvmlDeviceGetHandleByIndex(0)
+            info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
         loss.backward()
         optimizer.step()
 
@@ -211,16 +216,24 @@ def train(epoch):
         correct += predict.eq(labels).cpu().sum().double()
 
         sys.stdout.write('\r')
-        sys.stdout.write('[%s] Training Epoch [%d/%d] Iter[%d/%d]\t\tLoss: %.4f Acc@1: %.3f'
-                        % (time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())),
-                           epoch, num_epochs, idx + 1, len(train_dataset) // batch_size,
-                          train_loss / (batch_size * (idx + 1)), correct / total))
+        if is_use_cuda:
+            sys.stdout.write('[%s] Training Epoch [%d/%d] Iter[%d/%d]\t\tLoss: %.4f Acc@1: %.3f Mem: %.3f GB'
+                          % (time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())),
+                              epoch, num_epochs, idx, len(train_dataset) // batch_size,
+                              train_loss / (batch_size * (idx + 1)), correct / total, info.used/1e9))
+        else:
+            sys.stdout.write('[%s] Training Epoch [%d/%d] Iter[%d/%d]\t\tLoss: %.4f Acc@1: %.3f'
+                          % (time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())),
+                              epoch, num_epochs, idx + 1, len(train_dataset) // batch_size,
+                              train_loss / (batch_size * (idx + 1)), correct / total))
         sys.stdout.flush()
     writer.add_scalar('Train/Accuracy', correct / total, epoch )
     logger.info('[%s] Training Epoch [%d/%d] Iter[%d/%d]\t\tLoss: %.4f Acc@1: %.3f'
                         % (time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())),
                            epoch, num_epochs, idx + 1, len(train_dataset) // batch_size,
                           train_loss / (batch_size * (idx + 1)), correct / total) )
+    if is_use_cuda:
+        writer.add_scalar('Memory',info.used/1e9)
 
 # Function for test:
 def test(epoch):
@@ -264,7 +277,7 @@ def makedirs(dirname):
 if __name__ == '__main__':
     makedirs(args.save)
 
-    logger = get_logger(logpath=os.path.join(args.save, 'logs'), filepath=os.path.abspath(__file__))
+    logger = get_logger(logpath=os.path.join(args.save, 'logs'), filepath=os.path.abspath(__file__), displaying=False)
     logger.info(args)
 
     logger.info(net)

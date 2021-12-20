@@ -70,7 +70,7 @@ parser.add_argument('--save', type=str, default='experiments/cnf')
 parser.add_argument('--evaluate', action='store_true')
 parser.add_argument('--val_freq', type=int, default=200)
 parser.add_argument('--log_freq', type=int, default=10)
-parser.add_argument('--gpu', type=int, default=1)
+parser.add_argument('--gpu', type=int, default=0)
 #args = parser.parse_args()
 args, unknown = parser.parse_known_args()
 sys.argv = [sys.argv[0]] + unknown
@@ -100,9 +100,12 @@ from train_misc import create_regularization_fns, get_regularization, append_reg
 from train_misc import build_model_tabular, override_divergence_fn
 from pytorch_model_summary import summary
 
+if torch.cuda.is_available():
+    import nvidia_smi
+    nvidia_smi.nvmlInit()
+
 if args.resume == None:
     os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
-    args.gpu = 0
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 # logger
@@ -262,6 +265,10 @@ if __name__ == '__main__':
                 total_time = count_total_time(model)
                 nfe_forward = count_nfe(model)
 
+                if torch.cuda.is_available():
+                    handle = nvidia_smi.nvmlDeviceGetHandleByIndex(0)
+                    info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
+
                 loss.backward()
                 optimizer.step()
 
@@ -274,15 +281,26 @@ if __name__ == '__main__':
                 tt_meter.update(total_time)
 
                 if itr % args.log_freq == 0:
-                    log_message = (
-                        'Iter {:06d} | Epoch {:.2f} | Time {:.4f}({:.4f}) | Loss {:.6f}({:.6f}) | '
-                        'NFE Forward {:.0f}({:.1f}) | NFE Backward {:.0f}({:.1f}) | CNF Time {:.4f}({:.4f})'.format(
-                            itr,
-                            float(itr) / (data.trn.x.shape[0] / float(args.batch_size)), time_meter.val, time_meter.avg,
-                            loss_meter.val, loss_meter.avg, nfef_meter.val, nfef_meter.avg, nfeb_meter.val,
-                            nfeb_meter.avg, tt_meter.val, tt_meter.avg
+                    if torch.cuda.is_available():
+                        log_message = (
+                            'Iter {:06d} | Epoch {:.2f} | Time {:.4f}({:.4f}) | Loss {:.6f}({:.6f}) | '
+                            'NFE Forward {:.0f}({:.1f}) | NFE Backward {:.0f}({:.1f}) | CNF Time {:.4f}({:.4f}) | GPU Memory {:.3f}GB'.format(
+                                itr,
+                                float(itr) / (data.trn.x.shape[0] / float(args.batch_size)), time_meter.val, time_meter.avg,
+                                loss_meter.val, loss_meter.avg, nfef_meter.val, nfef_meter.avg, nfeb_meter.val,
+                                nfeb_meter.avg, tt_meter.val, tt_meter.avg, info.used/1e9
+                            )
                         )
-                    )
+                    else:
+                        log_message = (
+                            'Iter {:06d} | Epoch {:.2f} | Time {:.4f}({:.4f}) | Loss {:.6f}({:.6f}) | '
+                            'NFE Forward {:.0f}({:.1f}) | NFE Backward {:.0f}({:.1f}) | CNF Time {:.4f}({:.4f})'.format(
+                                itr,
+                                float(itr) / (data.trn.x.shape[0] / float(args.batch_size)), time_meter.val, time_meter.avg,
+                                loss_meter.val, loss_meter.avg, nfef_meter.val, nfef_meter.avg, nfeb_meter.val,
+                                nfeb_meter.avg, tt_meter.val, tt_meter.avg
+                            )
+                        )
                     if len(regularization_coeffs) > 0:
                         log_message = append_regularization_to_log(log_message, regularization_fns, reg_states)
 
