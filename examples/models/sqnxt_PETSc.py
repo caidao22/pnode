@@ -38,7 +38,7 @@ class BasicBlock(nn.Module):
         output = F.relu(self.bn3(self.conv3(output)))
         output = F.relu(self.bn4(self.conv4(output)))
         output = F.relu(self.bn5(self.conv5(output)))
-        output += F.relu(self.shortcut(input))
+        output = output + F.relu(self.shortcut(input))
         output = F.relu(output)
         return output
 
