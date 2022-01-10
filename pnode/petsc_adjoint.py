@@ -181,7 +181,6 @@ class ODEPetsc(object):
 
     def __init__(self):
         self.ts = PETSc.TS().create(comm=self.comm)
-        self.has_monitor = False
         self.func_eval = None
 
     def evalFunction(self, ts, t, U, F):
@@ -227,9 +226,9 @@ class ODEPetsc(object):
         self.t = t
         if self.use_dlpack:
             U.attachDLPackInfo(self.cached_U)
-            x = dlpack.from_dlpack(U.toDLPack())
-            self.cached_u_tensor.copy_(x)
-            # self.cached_u_tensor = dlpack.from_dlpack(U.toDLPack()).view(self.cached_u_tensor.size()).type(self.tensor_type)
+            # x = dlpack.from_dlpack(U.toDLPack())
+            # self.cached_u_tensor.copy_(x)
+            self.cached_u_tensor = dlpack.from_dlpack(U.toDLPack())
         else:
             self.cached_u_tensor = torch.from_numpy(U.array.reshape(self.cached_u_tensor.size())).to(device=self.device,dtype=self.tensor_dtype)
 
@@ -286,11 +285,12 @@ class ODEPetsc(object):
         self.device = u_tensor.device
         self.tensor_dtype = u_tensor.dtype
         #self.tensor_type = u_tensor.type()
-        self.cached_u_tensor = u_tensor.detach().clone()
+        #self.cached_u_tensor = u_tensor.detach().clone()
         self.n = u_tensor.numel()
         self.use_dlpack = use_dlpack
         if use_dlpack:
-            self.cached_U = PETSc.Vec().createWithDLPack(dlpack.to_dlpack(self.cached_u_tensor)) # convert to PETSc vec
+            # self.cached_U = PETSc.Vec().createWithDLPack(dlpack.to_dlpack(self.cached_u_tensor)) # convert to PETSc vec
+            self.cached_U = PETSc.Vec().createWithDLPack(dlpack.to_dlpack(u_tensor)) # convert to PETSc vec, used only for providing info
         else:
             self.cached_U = PETSc.Vec().createWithArray(u_tensor.cpu().numpy()) # convert to PETSc vec
 
@@ -375,10 +375,6 @@ class ODEPetsc(object):
             self.ts.setCostGradients(self.adj_u, self.adj_p)
             self.ts.setSaveTrajectory()
 
-        if not self.has_monitor:
-            self.ts.setMonitor(self.saveSolution)
-            self.has_monitor = True
-
         # self.ts.setMaxSteps(1000)
         self.ts.setFromOptions()
         self.ts.setTimeStep(step_size) # overwrite the command-line option
@@ -394,15 +390,23 @@ class ODEPetsc(object):
         ts = self.ts
 
         self.sol_times = t.cpu().to(dtype=torch.float64)
-        self.sol_list =  [None]*list(t.size())[0]
         self.cur_index = 0
-        ts.setTime(self.sol_times[0])
-        ts.setMaxTime(self.sol_times[-1])
+        if t.shape[0] == 1:
+            ts.setTime(0.0)
+            ts.setMaxTime(self.sol_times[0])
+        else:
+            ts.setTime(self.sol_times[0])
+            ts.setMaxTime(self.sol_times[-1])
+            self.sol_list =  [None]*list(t.size())[0]
+            self.ts.setMonitor(self.saveSolution)
         ts.setStepNumber(0)
         ts.setTimeStep(self.step_size) # reset the step size because the last time step of TSSolve() may be changed even the fixed time step is used.
         ts.solve(U)
-        # print(self.sol_list)
-        solution = torch.stack([self.sol_list[i] for i in range(len(self.sol_times))], dim=0)
+        if t.shape[0] == 1:
+            solution = torch.stack([dlpack.from_dlpack(U.toDLPack()).clone()], dim=0)
+        else:
+            solution = torch.stack([self.sol_list[i] for i in range(len(self.sol_times))], dim=0)
+            ts.cancelMonitor()
         return solution
 
     def petsc_adjointsolve(self, t):
@@ -463,6 +467,8 @@ class OdeintAdjointMethod(torch.autograd.Function):
             else:
                 ctx.ode.adj_u[0].setArray(grad_output[0][-1].cpu().numpy())
                 ctx.ode.adj_p[0].zeroEntries()
+            if T == 1: # forward time interval is [0,t[0]] when t has a single element
+                adj_u_tensor, adj_p_tensor = ctx.ode.petsc_adjointsolve(torch.tensor([t, 0.0]))
             for i in range(T-1, 0, -1):
                 adj_u_tensor, adj_p_tensor = ctx.ode.petsc_adjointsolve(torch.tensor([t[i], t[i-1]]))
                 adj_u_tensor.add_(grad_output[0][i-1]) # add forcing
