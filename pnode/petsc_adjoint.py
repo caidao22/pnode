@@ -182,6 +182,10 @@ class ODEPetsc(object):
     def __init__(self):
         self.ts = PETSc.TS().create(comm=self.comm)
         self.func_eval = None
+        self.func = None
+        self.n = 0
+        self.adj_u = []
+        self.adj_p = []
 
     def evalFunction(self, ts, t, U, F):
         if self.use_dlpack:
@@ -282,102 +286,107 @@ class ODEPetsc(object):
                 self.cur_index = self.cur_index+1
 
     def setupTS(self, u_tensor, func, step_size=0.01, enable_adjoint=True, implicit_form=False, use_dlpack=True, method='euler'):
-        self.device = u_tensor.device
-        self.tensor_dtype = u_tensor.dtype
+        tensor_dtype = u_tensor.dtype
+        device = u_tensor.device
+        n = u_tensor.numel()
         #self.tensor_type = u_tensor.type()
         #self.cached_u_tensor = u_tensor.detach().clone()
-        self.n = u_tensor.numel()
-        self.use_dlpack = use_dlpack
-        if use_dlpack:
-            # self.cached_U = PETSc.Vec().createWithDLPack(dlpack.to_dlpack(self.cached_u_tensor)) # convert to PETSc vec
-            self.cached_U = PETSc.Vec().createWithDLPack(dlpack.to_dlpack(u_tensor)) # convert to PETSc vec, used only for providing info
-        else:
-            self.cached_U = PETSc.Vec().createWithArray(u_tensor.cpu().numpy()) # convert to PETSc vec
-
-        self.func = func
-        self.step_size = step_size
-        self.flat_params = _flatten(func.parameters())
-        self.np = self.flat_params.numel()
-
-        self.ts.reset()
-        self.ts.setType(PETSc.TS.Type.RK)
-        self.ts.setEquationType(PETSc.TS.EquationType.ODE_EXPLICIT)
-        self.ts.setExactFinalTime(PETSc.TS.ExactFinalTime.MATCHSTEP)
-
-        if method=='euler':
-            self.ts.setRKType('1fe')
-        elif method == 'midpoint':  # 2a is Heun's method, not midpoint.
-            self.ts.setRKType('2a')
-        elif method == 'rk4':
-            self.ts.setRKType('4')
-        elif method == 'dopri5_fixed':
-            self.ts.setRKType('5dp')
-        elif method == 'beuler':
-            self.ts.setType(PETSc.TS.Type.BE)
-        elif method == 'cn':
-            self.ts.setType(PETSc.TS.Type.CN)
-
-        self.f_tensor = u_tensor.detach().clone()
-        if use_dlpack:
-            F = PETSc.Vec().createWithDLPack(dlpack.to_dlpack(self.f_tensor))
-        else:
-            F = PETSc.Vec().createWithArray(self.f_tensor.cpu().numpy())
-
-        if implicit_form :
-            self.ts.setIFunction(self.evalIFunction, F)
-        else :
-            self.ts.setRHSFunction(self.evalFunction, F)
-
-        Jac = PETSc.Mat().create()
-        Jac.setSizes([self.n, self.n])
-        Jac.setType('python')
-        if implicit_form :
-            shell = IJacShell(self)
-        else :
-            shell = RHSJacShell(self)
-        Jac.setPythonContext(shell)
-        Jac.setUp()
-        Jac.assemble()
-        if implicit_form :
-            self.ts.setIJacobian(self.evalIJacobian, Jac)
-        else :
-            self.ts.setRHSJacobian(self.evalJacobian, Jac)
-
-        if enable_adjoint :
-            Jacp = PETSc.Mat().create()
-            Jacp.setSizes([self.n, self.np])
-            Jacp.setType('python')
-            shell = JacPShell(self)
-            Jacp.setPythonContext(shell)
-            Jacp.setUp()
-            Jacp.assemble()
-            if implicit_form :
-                self.ijacp = True
-                self.ts.setIJacobianP(self.evalIJacobianP, Jacp)
+        # check if the input tensor has a different type, device or size
+        if n != self.n or device != self.device or tensor_dtype != self.tensor_dtype:
+            if self.func != func:
+                self.func = func
+                self.flat_params = _flatten(func.parameters())
+                self.np = self.flat_params.numel()
+            self.use_dlpack = use_dlpack
+            self.tensor_dtype = tensor_dtype
+            self.device = device
+            self.n = n
+            self.ts.reset()
+            self.ts.setType(PETSc.TS.Type.RK)
+            self.ts.setEquationType(PETSc.TS.EquationType.ODE_EXPLICIT)
+            self.ts.setExactFinalTime(PETSc.TS.ExactFinalTime.MATCHSTEP)
+            if method=='euler':
+                self.ts.setRKType('1fe')
+            elif method == 'rk2':  # 2a is Heun's method, not midpoint.
+                self.ts.setRKType('2b')
+            elif method == 'fixed_bosh3':
+                self.ts.setRKType('3bs')
+            elif method == 'rk4':
+                self.ts.setRKType('4')
+            elif method == 'fixed_dopri5':
+                self.ts.setRKType('5dp')
+            elif method == 'beuler':
+                self.ts.setType(PETSc.TS.Type.BE)
+            elif method == 'cn':
+                self.ts.setType(PETSc.TS.Type.CN)
+            if use_dlpack:
+                # self.cached_U = PETSc.Vec().createWithDLPack(dlpack.to_dlpack(self.cached_u_tensor)) # convert to PETSc vec
+                self.cached_U = PETSc.Vec().createWithDLPack(dlpack.to_dlpack(u_tensor.detach().clone())) # convert to PETSc vec, used only for providing info
+            else:
+                self.cached_U = PETSc.Vec().createWithArray(u_tensor.detach().clone().cpu().numpy()) # convert to PETSc vec
+            self.f_tensor = u_tensor.detach().clone()
+            if use_dlpack:
+                F = PETSc.Vec().createWithDLPack(dlpack.to_dlpack(self.f_tensor))
+            else:
+                F = PETSc.Vec().createWithArray(self.f_tensor.cpu().numpy())
+            if implicit_form:
+                self.ts.setIFunction(self.evalIFunction, F)
+            else:
+                self.ts.setRHSFunction(self.evalFunction, F)
+            Jac = PETSc.Mat().create()
+            Jac.setSizes([self.n, self.n])
+            Jac.setType('python')
+            if implicit_form:
+                shell = IJacShell(self)
             else :
-                self.ijacp = False
-                self.ts.setRHSJacobianP(self.evalJacobianP, Jacp)
-
-            self.adj_u = []
-
-            if self.use_dlpack:
-                self.adj_u_tensor = u_tensor.detach().clone()
-                self.adj_u.append(PETSc.Vec().createWithDLPack(dlpack.to_dlpack(self.adj_u_tensor)))
+                shell = RHSJacShell(self)
+            Jac.setPythonContext(shell)
+            Jac.setUp()
+            Jac.assemble()
+            if implicit_form:
+                self.ts.setIJacobian(self.evalIJacobian, Jac)
             else:
-                self.adj_u.append(PETSc.Vec().createSeq(self.n, comm=self.comm))
-            self.adj_p = []
-            if self.use_dlpack:
-                self.adj_p_tensor = self.flat_params.detach().clone()
-                self.adj_p.append(PETSc.Vec().createWithDLPack(dlpack.to_dlpack(self.adj_p_tensor)))
-            else:
-                self.adj_p.append(PETSc.Vec().createSeq(self.np, comm=self.comm))
-            # self.adj_p.append(torch.zeros_like(self.flat_params))
-            self.ts.setCostGradients(self.adj_u, self.adj_p)
-            self.ts.setSaveTrajectory()
+                self.ts.setRHSJacobian(self.evalJacobian, Jac)
 
+            # check if it is already enabled or the func has changed
+            #if enable_adjoint and not self.adj_u and not self.adj_p:
+            if enable_adjoint:
+                self.ts.adjointReset()
+                Jacp = PETSc.Mat().create()
+                Jacp.setSizes([self.n, self.np])
+                Jacp.setType('python')
+                shell = JacPShell(self)
+                Jacp.setPythonContext(shell)
+                Jacp.setUp()
+                Jacp.assemble()
+                if implicit_form :
+                    self.ijacp = True
+                    self.ts.setIJacobianP(self.evalIJacobianP, Jacp)
+                else :
+                    self.ijacp = False
+                    self.ts.setRHSJacobianP(self.evalJacobianP, Jacp)
+
+                self.adj_u = []
+                if self.use_dlpack:
+                    self.adj_u_tensor = u_tensor.detach().clone()
+                    self.adj_u.append(PETSc.Vec().createWithDLPack(dlpack.to_dlpack(self.adj_u_tensor)))
+                else:
+                    self.adj_u.append(PETSc.Vec().createSeq(self.n, comm=self.comm))
+                self.adj_p = []
+                if self.use_dlpack:
+                    self.adj_p_tensor = self.flat_params.detach().clone()
+                    self.adj_p.append(PETSc.Vec().createWithDLPack(dlpack.to_dlpack(self.adj_p_tensor)))
+                else:
+                    self.adj_p.append(PETSc.Vec().createSeq(self.np, comm=self.comm))
+                # self.adj_p.append(torch.zeros_like(self.flat_params))
+                self.ts.setCostGradients(self.adj_u, self.adj_p)
+                self.ts.setSaveTrajectory()
         # self.ts.setMaxSteps(1000)
-        self.ts.setFromOptions()
+        self.step_size = step_size
         self.ts.setTimeStep(step_size) # overwrite the command-line option
+        if not enable_adjoint:
+            self.ts.removeTrajectory()
+        self.ts.setFromOptions()
 
     def odeint(self, u0, t):
         """Return the solutions in tensor"""

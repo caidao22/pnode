@@ -73,7 +73,7 @@ class BasicBlock2(nn.Module):
         return output
 
 class SqueezeNext(nn.Module):
-    def __init__(self, width_x, blocks, num_classes, ODEBlock_, Train):
+    def __init__(self, width_x, blocks, num_classes, ODEBlock_):
         super(SqueezeNext, self).__init__()
         self.in_channels = 64
         self.ODEBlock = ODEBlock_
@@ -81,16 +81,16 @@ class SqueezeNext(nn.Module):
         self.conv1  = nn.Conv2d(3, int(width_x * self.in_channels), 3, 1, 1, bias=True)     # For Cifar10
         self.bn1    = nn.BatchNorm2d(int(width_x * self.in_channels))
         self.stage1_1 = self._make_layer1(1, width_x, 32, 1)
-        self.stage1_2 = self._make_layer2(blocks[0] - 1, width_x, 32, 1, Train)
+        self.stage1_2 = self._make_layer2(blocks[0] - 1, width_x, 32, 1)
 
         self.stage2_1 = self._make_layer1(1, width_x, 64, 2)
-        self.stage2_2 = self._make_layer2(blocks[1] - 1, width_x, 64, 1, Train)
+        self.stage2_2 = self._make_layer2(blocks[1] - 1, width_x, 64, 1)
 
         self.stage3_1 = self._make_layer1(1, width_x, 128, 2)
-        self.stage3_2 = self._make_layer2(blocks[2] - 1, width_x, 128, 1, Train)
+        self.stage3_2 = self._make_layer2(blocks[2] - 1, width_x, 128, 1)
 
         self.stage4_1 = self._make_layer1(1, width_x, 256, 2)
-        self.stage4_2 = self._make_layer2(blocks[3] - 1, width_x, 256, 1, Train)
+        self.stage4_2 = self._make_layer2(blocks[3] - 1, width_x, 256, 1)
         self.conv2  = nn.Conv2d(int(width_x * self.in_channels), int(width_x * 128), 1, 1, bias = True)
         self.bn2    = nn.BatchNorm2d(int(width_x * 128))
         self.linear = nn.Linear(int(width_x * 128), num_classes)
@@ -106,7 +106,7 @@ class SqueezeNext(nn.Module):
             self.in_channels = out_channels
         return nn.Sequential(*layers)
     
-    def _make_layer2(self, num_block, width_x, out_channels, stride, Train):
+    def _make_layer2(self, num_block, width_x, out_channels, stride):
         #print("out_channels= ", out_channels)
         #print("in_channels = ", self.in_channels)
         #print("num_blocks = ", num_block)
@@ -117,7 +117,7 @@ class SqueezeNext(nn.Module):
         
         layers  = []
         for _stride in strides:
-            layers.append(self.ODEBlock(BasicBlock2(int(width_x * self.in_channels)), tuple([out_channels,int(1024/out_channels),int(1024/out_channels)]),Train ))
+            layers.append(self.ODEBlock(BasicBlock2(int(width_x * self.in_channels))))
             self.in_channels = out_channels
         
         return nn.Sequential(*layers)
@@ -137,9 +137,10 @@ class SqueezeNext(nn.Module):
         output = output.view(output.size(0), -1)
         output = self.linear(output)
         return output
-    
-def SqNxt_23_1x(num_classes, ODEBlock, Train):
-    return SqueezeNext(1.0, [2, 2, 2, 2], num_classes, ODEBlock, Train)
+
+def SqNxt_23_1x(num_classes, ODEBlock):
+    return SqueezeNext(1.0, [2, 2, 2, 2], num_classes, ODEBlock)
+
 def lr_schedule(lr, epoch):
     optim_factor = 0
     if epoch > 250:
