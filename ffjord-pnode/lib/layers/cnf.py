@@ -45,7 +45,7 @@ class CNF(nn.Module):
         
         self.init_train = False
         self.init_test = False
-
+        self.ode = petsc_adjoint.ODEPetsc()
 
     def forward(self, z, logpz=None, integration_times=None, reverse=False):
 
@@ -58,7 +58,6 @@ class CNF(nn.Module):
             integration_times = torch.tensor([0.0, self.sqrt_end_time * self.sqrt_end_time]).to(z)
         odefunc = self.odefunc
         if reverse:
-            
             print('Flipping funcion for integrating backward')
             odefunc = FlipFunc(self.odefunc)
             # re-initialize the TS objects since the ODE function is changed
@@ -71,26 +70,21 @@ class CNF(nn.Module):
 
         # Add regularization states.
         reg_states = tuple(torch.tensor(0).to(z) for _ in range(self.nreg))
-        
-       
-        
-        if self.training:    
+
+        if self.training:
             if self.init_train == False:
-                self.ode_train = petsc_adjoint.ODEPetsc()
-                self.ode_train.setupTS(_flatten((z, _logpz) + reg_states), FlattenFunc(odefunc,(z, _logpz) + reg_states), step_size=self.solver_options.get('step_size'), method=self.solver, enable_adjoint=True)
+                self.ode.setupTS(_flatten((z, _logpz) + reg_states), FlattenFunc(odefunc,(z, _logpz) + reg_states), step_size=self.solver_options.get('step_size'), method=self.solver, enable_adjoint=True)
                 self.init_train = True
-            state_t = self.ode_train.odeint_adjoint(_flatten((z, _logpz) + reg_states), integration_times  )
+            state_t = self.ode.odeint_adjoint(_flatten((z, _logpz) + reg_states), integration_times  )
             state_t = _revert_to_tuple(state_t,(z, _logpz) + reg_states)
                 #print('train: ', state_t)
-        else:    
+        else:
             if self.init_test == False:
-                self.ode_test = petsc_adjoint.ODEPetsc()
-                self.ode_test.setupTS(_flatten((z, _logpz) ), FlattenFunc(odefunc,(z, _logpz) ), step_size=self.solver_options.get('step_size'), method=self.test_solver, enable_adjoint=False)
+                self.ode.setupTS(_flatten((z, _logpz) ), FlattenFunc(odefunc,(z, _logpz) ), step_size=self.solver_options.get('step_size'), method=self.test_solver, enable_adjoint=False)
                 self.init_test = True
-            state_t = self.ode_test.odeint_adjoint(_flatten((z, _logpz)), integration_times  )
+            state_t = self.ode.odeint_adjoint(_flatten((z, _logpz)), integration_times  )
             state_t = _revert_to_tuple(state_t,(z, _logpz))
                 #print('test: ', state_t)
-                
 
         if len(integration_times) == 2:
             state_t = tuple(s[1] for s in state_t)
