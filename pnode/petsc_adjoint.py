@@ -289,14 +289,14 @@ class ODEPetsc(object):
         tensor_dtype = u_tensor.dtype
         device = u_tensor.device
         n = u_tensor.numel()
+        if self.func != func:
+            self.func = func
+            self.flat_params = _flatten(func.parameters())
+            self.np = self.flat_params.numel()
         #self.tensor_type = u_tensor.type()
         #self.cached_u_tensor = u_tensor.detach().clone()
         # check if the input tensor has a different type, device or size
         if n != self.n or device != self.device or tensor_dtype != self.tensor_dtype:
-            if self.func != func:
-                self.func = func
-                self.flat_params = _flatten(func.parameters())
-                self.np = self.flat_params.numel()
             self.use_dlpack = use_dlpack
             self.tensor_dtype = tensor_dtype
             self.device = device
@@ -380,11 +380,12 @@ class ODEPetsc(object):
                     self.adj_p.append(PETSc.Vec().createSeq(self.np, comm=self.comm))
                 # self.adj_p.append(torch.zeros_like(self.flat_params))
                 self.ts.setCostGradients(self.adj_u, self.adj_p)
-                self.ts.setSaveTrajectory()
         # self.ts.setMaxSteps(1000)
         self.step_size = step_size
         self.ts.setTimeStep(step_size) # overwrite the command-line option
-        if not enable_adjoint:
+        if enable_adjoint:
+            self.ts.setSaveTrajectory()
+        else:
             self.ts.removeTrajectory()
         self.ts.setFromOptions()
 
