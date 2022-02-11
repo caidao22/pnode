@@ -1,13 +1,10 @@
 import torch
 import torch.nn as nn
-import os
-import sys
 
 # Specify the arch of PETSc being used and initialize PETSc and petsc4py. For this driver, PETSc should be built with single precision.
 petsc4py_path = os.path.join(os.environ['PETSC_DIR'],os.environ['PETSC_ARCH'],'lib')
 sys.path.append(petsc4py_path)
 import petsc4py
-petsc4py.init(sys.argv)
 from petsc4py import PETSc
 
 # Import PNODE
@@ -36,16 +33,8 @@ class CNF(nn.Module):
         self.nreg = nreg
         self.regularization_states = None
         self.solver = solver
-        
         self.test_solver = solver
-        
         self.solver_options = {}
-        self.init_train = True
-        self.init_test = True
-        
-        self.init_train = False
-        self.init_test = False
-        self.ode = petsc_adjoint.ODEPetsc()
 
     def forward(self, z, logpz=None, integration_times=None, reverse=False):
 
@@ -59,12 +48,7 @@ class CNF(nn.Module):
         odefunc = self.odefunc
         if reverse:
             print('Flipping funcion for integrating backward')
-            odefunc = FlipFunc(self.odefunc)
-            # re-initialize the TS objects since the ODE function is changed
-            self.init_train = False
-            self.init_test = False
-
-
+            odefunc = FlipFunc(self.odefunc, integration_times[0]+integration_times[-1])
         # Refresh the odefunc statistics.
         self.odefunc.before_odeint()
 
@@ -72,19 +56,13 @@ class CNF(nn.Module):
         reg_states = tuple(torch.tensor(0).to(z) for _ in range(self.nreg))
 
         if self.training:
-            if self.init_train == False:
-                self.ode.setupTS(_flatten((z, _logpz) + reg_states), FlattenFunc(odefunc,(z, _logpz) + reg_states), step_size=self.solver_options.get('step_size'), method=self.solver, enable_adjoint=True)
-                self.init_train = True
+            self.ode.setupTS(_flatten((z, _logpz) + reg_states), FlattenFunc(odefunc,(z, _logpz) + reg_states), step_size=self.solver_options.get('step_size'), method=self.solver, enable_adjoint=True)
             state_t = self.ode.odeint_adjoint(_flatten((z, _logpz) + reg_states), integration_times  )
-            state_t = _revert_to_tuple(state_t,(z, _logpz) + reg_states)
-                #print('train: ', state_t)
+            state_t = _revert_to_tuple(state_t, (z, _logpz) + reg_states)
         else:
-            if self.init_test == False:
-                self.ode.setupTS(_flatten((z, _logpz) ), FlattenFunc(odefunc,(z, _logpz) ), step_size=self.solver_options.get('step_size'), method=self.test_solver, enable_adjoint=False)
-                self.init_test = True
+            self.ode.setupTS(_flatten((z, _logpz) ), FlattenFunc(odefunc,(z, _logpz) ), step_size=self.solver_options.get('step_size'), method=self.test_solver, enable_adjoint=False)
             state_t = self.ode.odeint_adjoint(_flatten((z, _logpz)), integration_times  )
-            state_t = _revert_to_tuple(state_t,(z, _logpz))
-                #print('test: ', state_t)
+            state_t = _revert_to_tuple(state_t, (z, _logpz))
 
         if len(integration_times) == 2:
             state_t = tuple(s[1] for s in state_t)
@@ -138,25 +116,22 @@ def _flatten(sequence):
     return torch.cat(flat) if len(flat) > 0 else torch.tensor([])
 
 class FlattenFunc(nn.Module):
+    def __init__(self, base_func,y0):
+        super(FlattenFunc, self).__init__()
+        self.base_func = base_func
+        self.y0 = y0
 
-            def __init__(self, base_func,y0):
-                super(FlattenFunc, self).__init__()
-                self.base_func = base_func
-                self.y0 = y0
-
-            def forward(self, t, y):
-                return _flatten( self.base_func(t, _revert_to_tuple(y,self.y0) ) )
+    def forward(self, t, y):
+        return _flatten( self.base_func(t, _revert_to_tuple(y,self.y0) ) )
 
 class FlipFunc(nn.Module):
 
-    def __init__(self, base_func):
+    def __init__(self, base_func, t0pt1):
         super(FlipFunc, self).__init__()
         self.base_func = base_func
         self.before_odeint = base_func.before_odeint
+        self.t0pt1 = t0pt1
         
     def forward(self,t,y):
-        return (-f_ for f_ in self.base_func(1-t,y))
+        return (-f_ for f_ in self.base_func(self.t0pt1-t,y))
         # For integrating backward in time
-        
-
-

@@ -85,8 +85,8 @@ class Adam(Optimizer):
                 state['step'] += 1
 
                 # Decay the first and second moment running average coefficient
-                exp_avg.mul_(beta1).add_(1 - beta1, grad)
-                exp_avg_sq.mul_(beta2).addcmul_(1 - beta2, grad, grad)
+                exp_avg.mul_(beta1).add_(grad, alpha=1-beta1)
+                exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1-beta2)
                 if amsgrad:
                     # Maintains the maximum of all 2nd moment running avg. till now
                     torch.max(max_exp_avg_sq, exp_avg_sq, out=max_exp_avg_sq)
@@ -100,8 +100,8 @@ class Adam(Optimizer):
                 step_size = group['lr'] * math.sqrt(bias_correction2) / bias_correction1
 
                 if group['weight_decay'] != 0:
-                    p.data.add(-step_size * group['weight_decay'], p.data)
+                    p.data.add(p.data, alpha=-step_size * group['weight_decay'])
 
-                p.data.addcdiv_(-step_size, exp_avg, denom)
+                p.data.addcdiv_(exp_avg, denom, value=-step_size)
 
         return loss

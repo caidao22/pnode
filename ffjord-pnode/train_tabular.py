@@ -16,15 +16,9 @@ import sys
 import torch
 import torch.nn as nn
 
-SOLVERS = ["rk4", "midpoint",'euler','dopri5_fixed']
-NONLINEARITIES = [
-    "tanh",
-    "relu",
-    "softplus",
-    "elu",
-    "swish",
-    "square",
-    "identity"]
+SOLVERS = ['euler', 'rk2', 'fixed_bosh3', 'rk4','dopri5', 'fixed_dopri5']
+NONLINEARITIES = ['tanh', 'relu', 'softplus', 'elu', 'swish', 'square', 'identity']
+
 parser = argparse.ArgumentParser('Continuous Normalizing Flow')
 parser.add_argument(
     '--data', choices=['power', 'gas', 'hepmass', 'miniboone', 'bsds300'], type=str, default='miniboone'
@@ -41,7 +35,7 @@ parser.add_argument('--train_T', type=eval, default=True)
 parser.add_argument("--divergence_fn", type=str, default="approximate", choices=["brute_force", "approximate"])
 parser.add_argument("--nonlinearity", type=str, default="softplus", choices=NONLINEARITIES)
 
-parser.add_argument('--solver', type=str, default='euler', choices=SOLVERS)
+parser.add_argument('--solver', type=str, default='dopri5', choices=SOLVERS)
 parser.add_argument("--step_size", type=float, default=None, help="Optional fixed step size.")
 
 parser.add_argument('--test_solver', type=str, default=None, choices=SOLVERS + [None])
@@ -73,18 +67,16 @@ parser.add_argument('--log_freq', type=int, default=10)
 parser.add_argument('--gpu', type=int, default=0)
 #args = parser.parse_args()
 args, unknown = parser.parse_known_args()
-sys.argv = [sys.argv[0]] + unknown
+if args.resume == None:
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 # Specify the arch of PETSc being used and initialize PETSc and petsc4py. For this driver, PETSc should be built with single precision.
 petsc4py_path = os.path.join(os.environ['PETSC_DIR'],os.environ['PETSC_ARCH'],'lib')
 sys.path.append(petsc4py_path)
+sys.argv = [sys.argv[0]] + unknown
 import petsc4py
 petsc4py.init(sys.argv)
-from petsc4py import PETSc
-
-# Import PNODE
-# sys.path.append("../") # for quick debugging
-from pnode import petsc_adjoint
 
 import lib.utils as utils
 import lib.layers.odefunc as odefunc
@@ -103,10 +95,6 @@ from pytorch_model_summary import summary
 if torch.cuda.is_available():
     import nvidia_smi
     nvidia_smi.nvmlInit()
-
-if args.resume == None:
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 # logger
 utils.makedirs(args.save)
@@ -189,8 +177,6 @@ def restore_model(model, filename):
 
 if __name__ == '__main__':
 
-    device = torch.device('cuda:' + str(args.gpu) if torch.cuda.is_available() else 'cpu')
-
     cvt = lambda x: x.type(torch.float32).to(device, non_blocking=True)
 
    # logger.info('Using {} GPUs.'.format(torch.cuda.device_count()))
@@ -238,16 +224,12 @@ if __name__ == '__main__':
         n_vals_without_improvement = 0
         end = time.time()
         model.train()
-        start = time.time()
         while True:
             if args.early_stopping > 0 and n_vals_without_improvement > args.early_stopping:
                 break
-
             for x in batch_iter(data.trn.x, shuffle=True):
                 if args.early_stopping > 0 and n_vals_without_improvement > args.early_stopping:
                     break
-
-
                 optimizer.zero_grad()
 
                 x = cvt(x)
@@ -266,9 +248,10 @@ if __name__ == '__main__':
                 nfe_forward = count_nfe(model)
 
                 if torch.cuda.is_available():
-                    handle = nvidia_smi.nvmlDeviceGetHandleByIndex(0)
+                    peak_torch_cuda_mem = torch.cuda.max_memory_allocated(device)
+                    handle = nvidia_smi.nvmlDeviceGetHandleByIndex(args.gpu)
                     info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
-
+                    total_cuda_mem = info.used
                 loss.backward()
                 optimizer.step()
 
@@ -284,11 +267,11 @@ if __name__ == '__main__':
                     if torch.cuda.is_available():
                         log_message = (
                             'Iter {:06d} | Epoch {:.2f} | Time {:.4f}({:.4f}) | Loss {:.6f}({:.6f}) | '
-                            'NFE Forward {:.0f}({:.1f}) | NFE Backward {:.0f}({:.1f}) | CNF Time {:.4f}({:.4f}) | GPU Memory {:.3f}GB'.format(
+                            'NFE Forward {:.0f}({:.1f}) | NFE Backward {:.0f}({:.1f}) | CNF Time {:.4f}({:.4f}) | Total Memory {:.3f} | Peak Memory {:.3f}'.format(
                                 itr,
                                 float(itr) / (data.trn.x.shape[0] / float(args.batch_size)), time_meter.val, time_meter.avg,
                                 loss_meter.val, loss_meter.avg, nfef_meter.val, nfef_meter.avg, nfeb_meter.val,
-                                nfeb_meter.avg, tt_meter.val, tt_meter.avg, info.used/1e9
+                                nfeb_meter.avg, tt_meter.val, tt_meter.avg, total_cuda_mem/1e9, peak_torch_cuda_mem/1e9
                             )
                         )
                     else:
@@ -306,12 +289,10 @@ if __name__ == '__main__':
 
                     logger.info(log_message)
                 itr += 1
-                end = time.time()
 
                 # Validation loop.
                 if itr % args.val_freq == 0:
                     model.eval()
-                    start_time = time.time()
                     with torch.no_grad():
                         val_loss = utils.AverageMeter()
                         val_nfe = utils.AverageMeter()
@@ -340,14 +321,10 @@ if __name__ == '__main__':
                         )
                         logger.info(log_message)
                     model.train()
-
+                end = time.time()
         logger.info('Training has finished.')
         model = restore_model(model, os.path.join(args.save, 'checkpt.pth')).to(device)
         set_cnf_options(args, model)
-
-    end = time.time()
-    logger.info('Time spent in total: {:.6f}, time per epoch {:.6f}'.format(end-start, float(end-start)/(float(itr) / (data.trn.x.shape[0] / float(args.batch_size)) )))
-
 
     logger.info('Evaluating model on test set.')
     model.eval()
