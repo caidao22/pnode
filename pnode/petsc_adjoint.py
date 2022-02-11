@@ -55,21 +55,21 @@ class RHSJacShell:
         else:
             x_tensor = torch.from_numpy(X.array.reshape(self.ode_.cached_u_tensor.size())).to(device=self.ode_.device,dtype=self.ode_.tensor_dtype)
             y = Y.array
+        f_params = tuple(self.ode_.func.parameters())
         with torch.set_grad_enabled(True):
             self.ode_.cached_u_tensor.requires_grad_(True)
             func_eval = self.ode_.func(self.ode_.t, self.ode_.cached_u_tensor)
-            vjp_u = torch.autograd.grad(
-               func_eval, self.ode_.cached_u_tensor,
+            vjp_u, *self.ode_.vjp_params = torch.autograd.grad(
+               func_eval, (self.ode_.cached_u_tensor,) + f_params,
                x_tensor, allow_unused=True, retain_graph=True
             )
-        self.ode_.func_eval = func_eval
         # autograd.grad returns None if no gradient, set to zero.
         # vjp_u = tuple(torch.zeros_like(y_) if vjp_u_ is None else vjp_u_ for vjp_u_, y_ in zip(vjp_u, y))
-        if vjp_u[0] is None: vjp_u[0] = torch.zeros_like(y)
+        if vjp_u is None: vjp_u = torch.zeros_like(y)
         if self.ode_.use_dlpack:
-            y.copy_(vjp_u[0])
+            y.copy_(vjp_u)
         else:
-            y[:] = vjp_u[0].cpu().numpy().flatten()
+            y[:] = vjp_u.cpu().numpy().flatten()
 
 class IJacShell:
     def __init__(self, ode):
@@ -121,21 +121,21 @@ class IJacShell:
         else:
             self.x_tensor = torch.from_numpy(X.array.reshape(self.ode_.cached_u_tensor.size())).to(device=self.ode_.device,dtype=self.ode_.tensor_dtype)
             y = Y.array
+        f_params = tuple(self.ode_.func.parameters())
         with torch.set_grad_enabled(True):
             self.ode_.cached_u_tensor.requires_grad_(True)
             func_eval = self.ode_.func(self.ode_.t, self.ode_.cached_u_tensor)
-            vjp_u = torch.autograd.grad(
-               func_eval, self.ode_.cached_u_tensor,
+            vjp_u, self.ode_.vjp_params = torch.autograd.grad(
+               func_eval, (self.ode_.cached_u_tensor,) + f_params,
                self.x_tensor, allow_unused=True, retain_graph=True
             )
-        self.ode_.func_eval = func_eval
         # autograd.grad returns None if no gradient, set to zero.
         # vjp_u = tuple(torch.zeros_like(y_) if vjp_u_ is None else vjp_u_ for vjp_u_, y_ in zip(vjp_u, y))
-        if vjp_u[0] is None: vjp_u[0] = torch.zeros_like(y)
+        if vjp_u is None: vjp_u = torch.zeros_like(y)
         if self.ode_.use_dlpack:
-            y.copy_(torch.mul(self.x_tensor,self.ode_.shift)-vjp_u[0])
+            y.copy_(torch.mul(self.x_tensor,self.ode_.shift)-vjp_u)
         else:
-            y[:] = self.ode_.shift*X.array - vjp_u[0].cpu().numpy().flatten()
+            y[:] = self.ode_.shift*X.array - vjp_u.cpu().numpy().flatten()
 
 class JacPShell:
     def __init__(self, ode):
@@ -143,28 +143,12 @@ class JacPShell:
 
     def multTranspose(self, A, X, Y):
         if self.ode_.use_dlpack:
-            X.attachDLPackInfo(self.ode_.cached_U)
-            x_tensor = dlpack.from_dlpack(X.toDLPack())
             Y.attachDLPackInfo(self.ode_.adj_p[0])
             y = dlpack.from_dlpack(Y.toDLPack())
         else:
-            x_tensor = torch.from_numpy(X.array.reshape(self.ode_.cached_u_tensor.size())).to(device=self.ode_.device,dtype=self.ode_.tensor_dtype)
             y = Y.array
         f_params = tuple(self.ode_.func.parameters())
-        with torch.set_grad_enabled(True):
-            # t = t.to(self.u_tensor.device).detach().requires_grad_(False)
-            if self.ode_.func_eval is not None:
-                func_eval = self.ode_.func_eval
-            else:
-                func_eval = self.ode_.func(self.ode_.t, self.ode_.cached_u_tensor)
-            vjp_params = torch.autograd.grad(
-                func_eval, f_params,
-                x_tensor, allow_unused=True
-            )
-        # autograd.grad returns None if no gradient, set to zero.
-        vjp_params = _flatten_convert_none_to_zeros(vjp_params, f_params)
-        if self.ode_.func_eval is not None:
-            self.ode_.func_eval = None
+        vjp_params = _flatten_convert_none_to_zeros(self.ode_.vjp_params, f_params)
         if self.ode_.use_dlpack:
             if self.ode_.ijacp:
                 y.copy_(torch.mul(vjp_params,-1.0))
@@ -181,7 +165,6 @@ class ODEPetsc(object):
 
     def __init__(self):
         self.ts = PETSc.TS().create(comm=self.comm)
-        self.func_eval = None
         self.func = None
         self.n = 0
         self.adj_u = []
