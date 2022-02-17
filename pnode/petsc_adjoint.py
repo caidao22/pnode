@@ -5,9 +5,15 @@ from .misc import _flatten, _flatten_convert_none_to_zeros
 import petsc4py
 from petsc4py import PETSc
 
+# def _mat_shift_and_scale(A, X, Y):
+#     Y.scale(A.vscale)
+#     if A.vshift != 0.0: Y.axpy(A.vshift, X)
+
 class RHSJacShell:
     def __init__(self, ode):
         self.ode_ = ode
+        # self.vshift = 0.0
+        # self.vscale = 1.0
 
     def mult(self, A, X, Y):
         """The Jacobian is A = shift*I - dFdU"""
@@ -17,24 +23,16 @@ class RHSJacShell:
             Y.attachDLPackInfo(self.ode_.cached_U)
             y = dlpack.from_dlpack(Y.toDLPack())
         else:
-            x_tensor = torch.from_numpy(X.array.reshape(self.ode_.cached_u_tensor.size())).to(device=self.ode_.device,dtype=self.ode_.tensor_dtype)
+            x_tensor = torch.from_numpy(X.array.reshape(self.ode_.tensor_size)).to(device=self.ode_.device,dtype=self.ode_.tensor_dtype)
             y = Y.array
         with torch.set_grad_enabled(True):
             self.ode_.cached_u_tensor.requires_grad_(True)
             func_eval = self.ode_.func(self.ode_.t, self.ode_.cached_u_tensor)
-            # grad_outputs = torch.zeros_like(func_eval, requires_grad=True)
-            # vjp_u = torch.autograd.grad(
-            #     func_eval, self.ode_.cached_u_tensor, grad_outputs,
-            #     allow_unused=True, create_graph=True
-            # )
-            # jvp_u = torch.autograd.grad(
-            #     vjp_u[0], grad_outputs, self.x_tensor,
-            #     allow_unused=True
-            # )
             vjp_u = torch.autograd.grad(
                 func_eval, self.ode_.cached_u_tensor, x_tensor,
                 allow_unused=True, create_graph=True
             )
+            x_tensor.requires_grad_(True)
             jvp_u = torch.autograd.grad(
                 vjp_u[0], x_tensor, x_tensor,
                 allow_unused=True
@@ -45,6 +43,7 @@ class RHSJacShell:
             y.copy_(jvp_u[0])
         else:
             y[:] = jvp_u[0].cpu().numpy().flatten()
+        # _mat_shift_and_scale(self, X, Y)
 
     def multTranspose(self, A, X, Y):
         if self.ode_.use_dlpack:
@@ -53,7 +52,7 @@ class RHSJacShell:
             Y.attachDLPackInfo(self.ode_.cached_U)
             y = dlpack.from_dlpack(Y.toDLPack())
         else:
-            x_tensor = torch.from_numpy(X.array.reshape(self.ode_.cached_u_tensor.size())).to(device=self.ode_.device,dtype=self.ode_.tensor_dtype)
+            x_tensor = torch.from_numpy(X.array.reshape(self.ode_.tensor_size)).to(device=self.ode_.device,dtype=self.ode_.tensor_dtype)
             y = Y.array
         f_params = tuple(self.ode_.func.parameters())
         with torch.set_grad_enabled(True):
@@ -71,9 +70,18 @@ class RHSJacShell:
         else:
             y[:] = vjp_u.cpu().numpy().flatten()
 
+    # def scale(self, A, a):
+    #    self.vscale = self.vscale * a
+    #    self.vshift = self.vshift * a
+
+    # def shift(self, A, a):
+    #    self.vshift = self.vshift + a 
+
 class IJacShell:
     def __init__(self, ode):
         self.ode_ = ode
+        # self.vshift = 0.0
+        # self.vscale = 1.0
 
     def mult(self, A, X, Y):
         """The Jacobian is A = shift*I - dFdU"""
@@ -83,20 +91,11 @@ class IJacShell:
             Y.attachDLPackInfo(self.ode_.cached_U)
             y = dlpack.from_dlpack(Y.toDLPack())
         else:
-            self.x_tensor = torch.from_numpy(X.array.reshape(self.ode_.cached_u_tensor.size())).to(device=self.ode_.device,dtype=self.ode_.tensor_dtype)
+            self.x_tensor = torch.from_numpy(X.array.reshape(self.ode_.tensor_size)).to(device=self.ode_.device,dtype=self.ode_.tensor_dtype)
             y = Y.array
         with torch.set_grad_enabled(True):
             self.ode_.cached_u_tensor.requires_grad_(True)
             func_eval = self.ode_.func(self.ode_.t, self.ode_.cached_u_tensor)
-            # grad_outputs = torch.zeros_like(func_eval, requires_grad=True)
-            # vjp_u = torch.autograd.grad(
-            #     func_eval, self.ode_.cached_u_tensor, grad_outputs,
-            #     allow_unused=True, create_graph=True
-            # )
-            # jvp_u = torch.autograd.grad(
-            #     vjp_u[0], grad_outputs, self.x_tensor,
-            #     allow_unused=True
-            # )
             self.x_tensor = self.x_tensor.detach().requires_grad_(True)
             vjp_u = torch.autograd.grad(
                 func_eval, self.ode_.cached_u_tensor, self.x_tensor,
@@ -111,6 +110,7 @@ class IJacShell:
             y.copy_(self.x_tensor.mul(self.ode_.shift)-jvp_u[0])
         else:
             y[:] = self.ode_.shift*X.array - jvp_u[0].cpu().numpy().flatten()
+        # _mat_shift_and_scale(self, X, Y)
 
     def multTranspose(self, A, X, Y):
         if self.ode_.use_dlpack:
@@ -119,13 +119,13 @@ class IJacShell:
             Y.attachDLPackInfo(self.ode_.cached_U)
             y = dlpack.from_dlpack(Y.toDLPack())
         else:
-            self.x_tensor = torch.from_numpy(X.array.reshape(self.ode_.cached_u_tensor.size())).to(device=self.ode_.device,dtype=self.ode_.tensor_dtype)
+            self.x_tensor = torch.from_numpy(X.array.reshape(self.ode_.tensor_size)).to(device=self.ode_.device,dtype=self.ode_.tensor_dtype)
             y = Y.array
         f_params = tuple(self.ode_.func.parameters())
         with torch.set_grad_enabled(True):
             self.ode_.cached_u_tensor.requires_grad_(True)
             func_eval = self.ode_.func(self.ode_.t, self.ode_.cached_u_tensor)
-            vjp_u, self.ode_.vjp_params = torch.autograd.grad(
+            vjp_u, *self.ode_.vjp_params = torch.autograd.grad(
                func_eval, (self.ode_.cached_u_tensor,) + f_params,
                self.x_tensor, allow_unused=True, retain_graph=True
             )
@@ -136,6 +136,13 @@ class IJacShell:
             y.copy_(torch.mul(self.x_tensor,self.ode_.shift)-vjp_u)
         else:
             y[:] = self.ode_.shift*X.array - vjp_u.cpu().numpy().flatten()
+
+    # def scale(self, A, a):
+    #    self.vscale = self.vscale * a
+    #    self.vshift = self.vshift * a
+
+    # def shift(self, A, a):
+    #    self.vshift = self.vshift + a
 
 class JacPShell:
     def __init__(self, ode):
@@ -167,6 +174,8 @@ class ODEPetsc(object):
         self.ts = PETSc.TS().create(comm=self.comm)
         self.func = None
         self.n = 0
+        self.tensor_size = None
+        self.tensor_dtype = None
         self.adj_u = []
         self.adj_p = []
 
@@ -175,7 +184,7 @@ class ODEPetsc(object):
             # have to call to() or type() to avoid a PETSc seg fault
             U.attachDLPackInfo(self.cached_U)
             u_tensor = dlpack.from_dlpack(U.toDLPack())
-            # u_tensor = dlpack.from_dlpack(U.toDLPack()).view(self.cached_u_tensor.size()).type(self.tensor_type)
+            # u_tensor = dlpack.from_dlpack(U.toDLPack()).view(self.tensor_size).type(self.tensor_type)
             F.attachDLPackInfo(self.cached_U)
             dudt = dlpack.from_dlpack(F.toDLPack())
             # Resotring the handle set the offloadmask flag to PETSC_OFFLOAD_GPU, but it zeros out the GPU memory accidentally, which is probably a bug
@@ -185,7 +194,7 @@ class ODEPetsc(object):
             dudt.copy_(self.func(t, u_tensor))
         else:
             f = F.array
-            u_tensor = torch.from_numpy(U.array.reshape(self.cached_u_tensor.size())).to(device=self.device,dtype=self.tensor_dtype)
+            u_tensor = torch.from_numpy(U.array.reshape(self.tensor_size)).to(device=self.device,dtype=self.tensor_dtype)
             dudt = self.func(t, u_tensor).cpu().detach().numpy()
             f[:] = dudt.flatten()
 
@@ -204,7 +213,7 @@ class ODEPetsc(object):
             dudt.copy_(udot_tensor-self.func(t, u_tensor))
         else:
             f = F.array
-            u_tensor = torch.from_numpy(U.array.reshape(self.cached_u_tensor.size())).to(device=self.device,dtype=self.tensor_dtype)
+            u_tensor = torch.from_numpy(U.array.reshape(self.tensor_size)).to(device=self.device,dtype=self.tensor_dtype)
             dudt = self.func(t, u_tensor).cpu().detach().numpy()
             f[:] = Udot.array - dudt.flatten()
 
@@ -217,7 +226,10 @@ class ODEPetsc(object):
             # self.cached_u_tensor.copy_(x)
             self.cached_u_tensor = dlpack.from_dlpack(U.toDLPack())
         else:
-            self.cached_u_tensor = torch.from_numpy(U.array.reshape(self.cached_u_tensor.size())).to(device=self.device,dtype=self.tensor_dtype)
+            self.cached_u_tensor = torch.from_numpy(U.array.reshape(self.tensor_size)).to(device=self.device,dtype=self.tensor_dtype)
+        # JacShell = Jac.getPythonContext()
+        # JacShell.vshift = 0.0
+        # JacShell.vscale = 1.0
 
     def evalIJacobian(self, ts, t, U, Udot, shift, Jac, JacPre):
         """Cache t and U for matrix-free Jacobian """
@@ -225,33 +237,22 @@ class ODEPetsc(object):
         self.shift = shift
         if self.use_dlpack:
             U.attachDLPackInfo(self.cached_U)
-            x = dlpack.from_dlpack(U.toDLPack())
-            self.cached_u_tensor.copy_(x)
-            # self.cached_u_tensor = dlpack.from_dlpack(U.toDLPack()).view(self.cached_u_tensor.size()).type(self.tensor_type)
+            # x = dlpack.from_dlpack(U.toDLPack())
+            # self.cached_u_tensor.copy_(x)
+            self.cached_u_tensor = dlpack.from_dlpack(U.toDLPack())
         else:
-            self.cached_u_tensor = torch.from_numpy(U.array.reshape(self.cached_u_tensor.size())).to(device=self.device,dtype=self.tensor_dtype)
+            self.cached_u_tensor = torch.from_numpy(U.array.reshape(self.tensor_size)).to(device=self.device,dtype=self.tensor_dtype)
+        # JacShell = Jac.getPythonContext()
+        # JacShell.vshift = 0.0
+        # JacShell.vscale = 1.0
 
     def evalJacobianP(self, ts, t, U, Jacp):
-        """Cache t and U for matrix-free Jacobian """
-        self.t = t
-        if self.use_dlpack:
-            U.attachDLPackInfo(self.cached_U)
-            x = dlpack.from_dlpack(U.toDLPack())
-            self.cached_u_tensor.copy_(x)
-            # self.cached_u_tensor = dlpack.from_dlpack(U.toDLPack()).view(self.cached_u_tensor.size()).type(self.tensor_type)
-        else:
-            self.cached_u_tensor = torch.from_numpy(U.array.reshape(self.cached_u_tensor.size())).to(device=self.device,dtype=self.tensor_dtype)
+        """t and U are already cached in Jacobian evaluation functions"""
+        pass
 
     def evalIJacobianP(self, ts, t, U, Udot, shift, Jacp):
-        """Cache t and U for matrix-free Jacobian """
-        self.t = t
-        if self.use_dlpack:
-            U.attachDLPackInfo(self.cached_U)
-            x = dlpack.from_dlpack(U.toDLPack())
-            self.cached_u_tensor.copy_(x)
-            # self.cached_u_tensor = dlpack.from_dlpack(U.toDLPack()).view(self.cached_u_tensor.size()).type(self.tensor_type)
-        else:
-            self.cached_u_tensor = torch.from_numpy(U.array.reshape(self.cached_u_tensor.size())).to(device=self.device,dtype=self.tensor_dtype)
+        """t and U are already cached in Jacobian evaluation functions"""
+        pass
 
     def saveSolution(self, ts, stepno, t, U):
         """"Save the solutions at intermediate points"""
@@ -264,12 +265,13 @@ class ODEPetsc(object):
                 if self.use_dlpack:
                     unew = dlpack.from_dlpack(U.toDLPack()).clone()
                 else:
-                    unew = torch.from_numpy(U.array.reshape(self.cached_u_tensor.size())).to(device=self.device,dtype=self.tensor_dtype,copy=True)
+                    unew = torch.from_numpy(U.array.reshape(self.tensor_size)).to(device=self.device,dtype=self.tensor_dtype,copy=True)
                 self.sol_list[self.cur_index] = unew
                 self.cur_index = self.cur_index+1
 
     def setupTS(self, u_tensor, func, step_size=0.01, enable_adjoint=True, implicit_form=False, use_dlpack=True, method='euler'):
         tensor_dtype = u_tensor.dtype
+        tensor_size = u_tensor.size()
         device = u_tensor.device
         n = u_tensor.numel()
         if self.func != func:
@@ -279,10 +281,11 @@ class ODEPetsc(object):
         #self.tensor_type = u_tensor.type()
         #self.cached_u_tensor = u_tensor.detach().clone()
         # check if the input tensor has a different type, device or size
-        if n != self.n or device != self.device or tensor_dtype != self.tensor_dtype:
-            self.use_dlpack = use_dlpack
+        if tensor_size != self.tensor_size or tensor_dtype != self.tensor_dtype or device != self.device:
+            self.tensor_size = tensor_size
             self.tensor_dtype = tensor_dtype
             self.device = device
+            self.use_dlpack = use_dlpack
             self.n = n
             self.ts.reset()
             self.ts.setType(PETSc.TS.Type.RK)
@@ -390,7 +393,7 @@ class ODEPetsc(object):
         else:
             ts.setTime(self.sol_times[0])
             ts.setMaxTime(self.sol_times[-1])
-            self.sol_list =  [None]*list(t.size())[0]
+            self.sol_list = [None]*list(t.size())[0]
             self.ts.setMonitor(self.saveSolution)
         ts.setStepNumber(0)
         ts.setTimeStep(self.step_size) # reset the step size because the last time step of TSSolve() may be changed even the fixed time step is used.
@@ -414,7 +417,7 @@ class ODEPetsc(object):
             adj_u_tensor = self.adj_u_tensor
             adj_p_tensor = self.adj_p_tensor
         else:
-            adj_u_tensor = torch.from_numpy(adj_u[0].getArray().reshape(self.cached_u_tensor.size())).to(device=self.device,dtype=self.tensor_dtype)
+            adj_u_tensor = torch.from_numpy(adj_u[0].getArray().reshape(self.tensor_size)).to(device=self.device,dtype=self.tensor_dtype)
             adj_p_tensor = torch.from_numpy(adj_p[0].getArray().reshape(self.np)).to(device=self.device,dtype=self.tensor_dtype)
         return adj_u_tensor, adj_p_tensor
 

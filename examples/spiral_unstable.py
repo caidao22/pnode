@@ -1,5 +1,8 @@
 ########################################
-# python3 spiral_unstable.py -ts_adapt_type none -ts_trajectory_type memory --double_prec --ref_method beuler --pref_method beuler --niters 200 --test_freq 10
+# Example of usage:
+#   python3 spiral_unstable.py -ts_adapt_type none -ts_trajectory_type memory --double_prec --ref_method rk2 --pnode_method cn --niters 200 --test_freq 10 --implicit_form
+# Prerequisites:
+#   pnode torchvision tensorboardX pytorch_model_summary petsc4py
 #######################################
 import os
 import argparse
@@ -18,8 +21,8 @@ matplotlib.rc('axes', titlesize=20)
 matplotlib.use('Agg')
 sys.path.append("../")
 parser = argparse.ArgumentParser('ODE demo')
-parser.add_argument('--ref_method', type=str, choices=['euler', 'rk2', 'fixed_bosh3', 'rk4', 'fixed_dopri5', 'beuler', 'cn'], default='euler')
-parser.add_argument('--pref_method', type=str, choices=['euler', 'rk2', 'fixed_bosh3', 'rk4', 'fixed_dopri5', 'beuler', 'cn'], default='euler')
+parser.add_argument('--ref_method', type=str, choices=['euler', 'rk2', 'fixed_bosh3', 'rk4', 'fixed_dopri5'], default='euler')
+parser.add_argument('--pnode_method', type=str, choices=['euler', 'rk2', 'fixed_bosh3', 'rk4', 'fixed_dopri5', 'beuler', 'cn'], default='euler')
 parser.add_argument('--step_size',type=float, default=.1)#0.1
 parser.add_argument('--data_size', type=int, default=161)#161
 parser.add_argument('--batch_time', type=int, default=10)
@@ -185,8 +188,6 @@ if __name__ == '__main__':
 
 #   Reference
     func_REF = ODEFunc().to(device)
-    if args.double_prec:
-        func_REF = func_REF.double()
     ode_REF = petsc_adjoint.ODEPetsc()
     ode_REF.setupTS(torch.zeros(args.batch_size,1,2).to(device,true_y0.dtype), func_REF, step_size=args.step_size, method=args.ref_method, enable_adjoint=True)
     optimizer_REF = optim.RMSprop(func_REF.parameters(), lr=1e-2)
@@ -198,12 +199,11 @@ if __name__ == '__main__':
 #   PNODE implementation
     func_PNODE = copy.deepcopy(func_REF).to(device)
     ode_PNODE = petsc_adjoint.ODEPetsc()
-
-    ode_PNODE.setupTS(torch.zeros(args.batch_size,1,2).to(device,true_y0.dtype), func_PNODE, step_size=args.step_size, method=args.pref_method, enable_adjoint=True, implicit_form=args.implicit_form)
+    ode_PNODE.setupTS(torch.zeros(args.batch_size,1,2).to(device,true_y0.dtype), func_PNODE, step_size=args.step_size, method=args.pnode_method, enable_adjoint=True, implicit_form=args.implicit_form)
     optimizer_PNODE = optim.RMSprop(func_PNODE.parameters(), lr=1e-2)
 #   model for test
     ode_test_PNODE = petsc_adjoint.ODEPetsc()
-    ode_test_PNODE.setupTS(true_y0.to(device), func_PNODE, step_size=args.step_size, method=args.pref_method, enable_adjoint=False, implicit_form=args.implicit_form)
+    ode_test_PNODE.setupTS(true_y0.to(device), func_PNODE, step_size=args.step_size, method=args.pnode_method, enable_adjoint=False, implicit_form=args.implicit_form)
 #   end of PNODE
     end = time.time()
 

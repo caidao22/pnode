@@ -6,7 +6,7 @@
 #   python3 train-Cifar10.py -ts_adapt_type none -ts_trajectory_type memory --num_epochs 200 --method euler
 #
 # Prerequisites:
-#   pnode torchvision tensorboardX pytorch_model_summary
+#   pnode torchvision tensorboardX pytorch_model_summary petsc4py
 
 import torch
 import time
