@@ -75,7 +75,7 @@ class RHSJacShell:
     #    self.vshift = self.vshift * a
 
     # def shift(self, A, a):
-    #    self.vshift = self.vshift + a 
+    #    self.vshift = self.vshift + a
 
 class IJacShell:
     def __init__(self, ode):
@@ -256,20 +256,47 @@ class ODEPetsc(object):
 
     def saveSolution(self, ts, stepno, t, U):
         """"Save the solutions at intermediate points"""
-        if self.cur_index < len(self.sol_list) and self.sol_list[self.cur_index] is None:
+        if self.cur_sol_index < len(self.sol_list) and self.sol_list[self.cur_sol_index] is None:
+            if isinstance(self.step_size, list):
+                if stepno < len(self.step_size):
+                    ts.setTimeStep(self.step_size[stepno])
+                self.cur_sol_steps[self.cur_sol_index] += 1
             if self.tensor_dtype == torch.double:
                 delta = 1e-5
             else:
                 delta = 1e-3
-            if abs(t-self.sol_times[self.cur_index]) < delta: # ugly workaround
+            if abs(t-self.sol_times[self.cur_sol_index]) < delta: # ugly workaround
                 if self.use_dlpack:
                     unew = dlpack.from_dlpack(U.toDLPack()).clone()
                 else:
                     unew = torch.from_numpy(U.array.reshape(self.tensor_size)).to(device=self.device,dtype=self.tensor_dtype,copy=True)
-                self.sol_list[self.cur_index] = unew
-                self.cur_index = self.cur_index+1
+                self.sol_list[self.cur_sol_index] = unew
+                self.cur_sol_index = self.cur_sol_index+1
 
     def setupTS(self, u_tensor, func, step_size=0.01, enable_adjoint=True, implicit_form=False, use_dlpack=True, method='euler'):
+        """
+        Set up the PETSc ODE solver before it is used.
+
+        Args:
+            u_tensor: N-D Tensor giving meta information such as size, dtype and device, its values are not used.
+            func: The callback function passed to PETSc TS
+            step_size: Specifies the step size for the ODE solver. It can be a scalar or a list.
+                       The list corresponds to the step size at each time step.
+            enable_adjoint: If true, checkpointing will be used as required by the adjoint solver.
+            implicit_form: Specifies the formulation type for func. PETSc TS can handle explicit ODEs in the form
+                           ```
+                           du/dt = fun(t, u), u(t[0]) = u0
+                           ```
+                           and implicit ODEs in the form
+                           ```
+                           M(u)du/dt = fun(t, u), u(t[0]) = u0
+                           ```
+                           where M(u) is the mass matrix.
+            use_dlpack: DLPack allows in-palce conversion between PETSc objects and tensors. If disabled, numpy
+                        arrays will be used as a stepping stone for the conversion.
+            method: Specifies the time integration method for PETSc TS. The choice can be overwritten by command
+                    line option -ts_type <petsc_ts_method_name>
+        """
         tensor_dtype = u_tensor.dtype
         tensor_size = u_tensor.size()
         device = u_tensor.device
@@ -368,7 +395,8 @@ class ODEPetsc(object):
                 self.ts.setCostGradients(self.adj_u, self.adj_p)
         # self.ts.setMaxSteps(1000)
         self.step_size = step_size
-        self.ts.setTimeStep(step_size) # overwrite the command-line option
+        if not isinstance(step_size, list): # scalar
+            self.ts.setTimeStep(step_size) # overwrite the command-line option
         if enable_adjoint:
             self.ts.setSaveTrajectory()
         else:
@@ -376,7 +404,20 @@ class ODEPetsc(object):
         self.ts.setFromOptions()
 
     def odeint(self, u0, t):
-        """Return the solutions in tensor"""
+        """
+        Solves a system of ODEs
+            ```
+            du/dt = fun(t, u), u(t[0]) = u0
+            ```
+        where u is a Tensor or tuple of Tensors of any shape.
+
+        Args:
+            u0: N-D Tensor giving the initial condition.
+            t: 1-D Tensor specifying a sequence of time points.
+
+        Returns
+            solution: Tensor, where the frist dimension corresponds to the input time points.
+        """
         # self.u0 = u0.clone().detach() # clone a new tensor that will be used by PETSc
         if self.use_dlpack:
             self.u0 = u0.detach().clone() # increase the object reference, otherwise the dlpack object may be deleted early and cause a bug
@@ -386,7 +427,11 @@ class ODEPetsc(object):
         ts = self.ts
 
         self.sol_times = t.cpu().to(dtype=torch.float64)
-        self.cur_index = 0
+        self.cur_sol_index = 0
+        if not isinstance(self.step_size, list):
+            ts.setTimeStep(self.step_size) # reset the step size because the last time step of TSSolve() may be changed even the fixed time step is used.
+        else:
+            ts.setTimeStep(self.step_size[0])
         if t.shape[0] == 1:
             ts.setTime(0.0)
             ts.setMaxTime(self.sol_times[0])
@@ -394,9 +439,9 @@ class ODEPetsc(object):
             ts.setTime(self.sol_times[0])
             ts.setMaxTime(self.sol_times[-1])
             self.sol_list = [None]*list(t.size())[0]
+            self.cur_sol_steps = [0]*list(t.size())[0] # time steps taken to integrate from previous saved solution to current solution
             self.ts.setMonitor(self.saveSolution)
         ts.setStepNumber(0)
-        ts.setTimeStep(self.step_size) # reset the step size because the last time step of TSSolve() may be changed even the fixed time step is used.
         ts.solve(U)
         if t.shape[0] == 1:
             solution = torch.stack([dlpack.from_dlpack(U.toDLPack()).clone()], dim=0)
@@ -405,15 +450,16 @@ class ODEPetsc(object):
             ts.cancelMonitor()
         return solution
 
-    def petsc_adjointsolve(self, t):
-        t = t.to(self.device, torch.float64)
+    def petsc_adjointsolve(self, t, i=1):
         ts = self.ts
         dt = ts.getTimeStep()
         if t.shape[0] == 1:
             ts.adjointSetSteps(round((t/dt).abs().item()))
         else:
-            ts.adjointSetSteps(round(((t[1]-t[0])/dt).abs().item()))
-            # print('do {} adjoint steps'.format(round(((t[1]-t[0])/dt).abs().item())))
+            if isinstance(self.step_size, list):
+                ts.adjointSetSteps(self.cur_sol_steps[i])
+            else:
+                ts.adjointSetSteps(round(((t[i]-t[i-1])/dt).abs().item()))
         ts.adjointSolve()
         adj_u, adj_p = ts.getCostGradients()
         if self.use_dlpack:
@@ -467,9 +513,9 @@ class OdeintAdjointMethod(torch.autograd.Function):
                 ctx.ode.adj_u[0].setArray(grad_output[0][-1].cpu().numpy())
                 ctx.ode.adj_p[0].zeroEntries()
             if T == 1: # forward time interval is [0,t[0]] when t has a single element
-                adj_u_tensor, adj_p_tensor = ctx.ode.petsc_adjointsolve(torch.tensor([t, 0.0]))
+                adj_u_tensor, adj_p_tensor = ctx.ode.petsc_adjointsolve(t)
             for i in range(T-1, 0, -1):
-                adj_u_tensor, adj_p_tensor = ctx.ode.petsc_adjointsolve(torch.tensor([t[i], t[i-1]]))
+                adj_u_tensor, adj_p_tensor = ctx.ode.petsc_adjointsolve(t, i)
                 adj_u_tensor.add_(grad_output[0][i-1]) # add forcing
                 if not ctx.ode.use_dlpack: # if use_dlpack=True, adj_u_tensor shares memory with adj_u[0], so no need to set the values explicitly
                     ctx.ode.adj_u[0].setArray(adj_u_tensor.cpu().numpy()) # update PETSc work vectors
