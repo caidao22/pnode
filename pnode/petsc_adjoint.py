@@ -409,8 +409,11 @@ class ODEPetsc(object):
         t = t.to(self.device, torch.float64)
         ts = self.ts
         dt = ts.getTimeStep()
-        # print('do {} adjoint steps'.format(round(((t[1]-t[0])/dt).abs().item())))
-        ts.adjointSetSteps(round(((t[1]-t[0])/dt).abs().item()))
+        if t.shape[0] == 1:
+            ts.adjointSetSteps(round((t/dt).abs().item()))
+        else:
+            ts.adjointSetSteps(round(((t[1]-t[0])/dt).abs().item()))
+            # print('do {} adjoint steps'.format(round(((t[1]-t[0])/dt).abs().item())))
         ts.adjointSolve()
         adj_u, adj_p = ts.getCostGradients()
         if self.use_dlpack:
