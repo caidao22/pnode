@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
-
 # Specify the arch of PETSc being used and initialize PETSc and petsc4py. For this driver, PETSc should be built with single precision.
-petsc4py_path = os.path.join(os.environ['PETSC_DIR'],os.environ['PETSC_ARCH'],'lib')
-sys.path.append(petsc4py_path)
+# import os,sys
+# petsc4py_path = os.path.join(os.environ['PETSC_DIR'],os.environ['PETSC_ARCH'],'lib')
+# sys.path.append(petsc4py_path)
 import petsc4py
 from petsc4py import PETSc
 
@@ -35,6 +35,7 @@ class CNF(nn.Module):
         self.solver = solver
         self.test_solver = solver
         self.solver_options = {}
+        self.ode = petsc_adjoint.ODEPetsc()
 
     def forward(self, z, logpz=None, integration_times=None, reverse=False):
 
