@@ -42,9 +42,8 @@ parser.add_argument('--seed', type=int, default=0)
 parser.add_argument('--use_dlpack', action='store_true')
 parser.add_argument('--train_dir', type=str, metavar='PATH', default='./train_results' )
 parser.add_argument('--hotstart', action='store_true')
+parser.add_argument('--petsc_ts_adapt', action='store_true')
 args, unknown = parser.parse_known_args()
-unknown.append('-ts_adapt_type')
-unknown.append('none') # disable adaptor in PETSc
 
 # Set these random seeds, so everything can be reproduced.
 # np.random.seed(args.seed)
@@ -59,10 +58,15 @@ initial_state = torch.tensor([[1., 0., 0.]], dtype=torch.float64)
 endtime = 100.0
 #t = torch.linspace(0, endtime, args.data_size, dtype=torch.float64)
 t = torch.cat((torch.tensor([0]),torch.logspace(start=-5, end=2, steps=args.data_size)))
-t_traj = torch.cat((torch.tensor([0]), torch.logspace(start=-5, end=2, steps=args.data_size+(args.data_size-1)*(args.steps_per_data_point-1))))
-step_size = (t_traj[1:] - t_traj[:-1]).tolist()
-options = {}
-options.update({'step_size':step_size})
+if not args.petsc_ts_adapt:
+    unknown.append('-ts_adapt_type')
+    unknown.append('none') # disable adaptor in PETSc
+    t_traj = torch.cat((torch.tensor([0]), torch.logspace(start=-5, end=2, steps=args.data_size+(args.data_size-1)*(args.steps_per_data_point-1))))
+    step_size = (t_traj[1:] - t_traj[:-1]).tolist()
+    options = {}
+    options.update({'step_size':step_size})
+else:
+    step_size = 1e-5
 
 def fun(t, state):
     k1 = 0.04
