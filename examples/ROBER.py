@@ -63,8 +63,6 @@ if not args.petsc_ts_adapt:
     unknown.append('none') # disable adaptor in PETSc
     t_traj = torch.cat((torch.tensor([0]), torch.logspace(start=-5, end=2, steps=args.data_size+(args.data_size-1)*(args.steps_per_data_point-1))))
     step_size = (t_traj[1:] - t_traj[:-1]).tolist()
-    options = {}
-    options.update({'step_size':step_size})
 else:
     step_size = 1e-5
 

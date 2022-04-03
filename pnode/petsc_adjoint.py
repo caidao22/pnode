@@ -254,23 +254,20 @@ class ODEPetsc(object):
         """t and U are already cached in Jacobian evaluation functions"""
         pass
 
-    def saveSolution(self, ts, stepno, t, U):
+    def tspanPostStep(self, ts):
         """"Save the solutions at intermediate points"""
-        if self.cur_sol_index < len(self.sol_list) and self.sol_list[self.cur_sol_index] is None:
+        stepno = ts.getStepNumber()
+        t = ts.getTime()
+        if self.cur_sol_index < len(self.sol_times):
             if isinstance(self.step_size, list):
                 if stepno < len(self.step_size):
                     ts.setTimeStep(self.step_size[stepno])
-                self.cur_sol_steps[self.cur_sol_index] += 1
+            self.cur_sol_steps[self.cur_sol_index] += 1
             if self.tensor_dtype == torch.double:
                 delta = 1e-5
             else:
                 delta = 1e-3
             if abs(t-self.sol_times[self.cur_sol_index]) < delta: # ugly workaround
-                if self.use_dlpack:
-                    unew = dlpack.from_dlpack(U.toDLPack(mode='r')).clone()
-                else:
-                    unew = torch.from_numpy(U.array_r.reshape(self.tensor_size)).to(device=self.device,dtype=self.tensor_dtype,copy=True)
-                self.sol_list[self.cur_sol_index] = unew
                 self.cur_sol_index = self.cur_sol_index+1
 
     def setupTS(self, u_tensor, func, step_size=0.01, enable_adjoint=True, implicit_form=False, use_dlpack=True, method='euler'):
@@ -427,7 +424,6 @@ class ODEPetsc(object):
         ts = self.ts
 
         self.sol_times = t.cpu().to(dtype=torch.float64)
-        self.cur_sol_index = 0
         if not isinstance(self.step_size, list):
             ts.setTimeStep(self.step_size) # reset the step size because the last time step of TSSolve() may be changed even the fixed time step is used.
         else:
@@ -436,11 +432,10 @@ class ODEPetsc(object):
             ts.setTime(0.0)
             ts.setMaxTime(self.sol_times[0])
         else:
-            ts.setTime(self.sol_times[0])
-            ts.setMaxTime(self.sol_times[-1])
-            self.sol_list = [None]*list(t.size())[0]
+            ts.setTimeSpan(t.cpu().numpy()) # overwrite the command line option
             self.cur_sol_steps = [0]*list(t.size())[0] # time steps taken to integrate from previous saved solution to current solution
-            self.ts.setMonitor(self.saveSolution)
+            self.cur_sol_index = 1 # skip 0th element
+            ts.setPostStep(self.tspanPostStep)
         ts.setStepNumber(0)
         ts.solve(U)
         if t.shape[0] == 1:
@@ -449,8 +444,12 @@ class ODEPetsc(object):
             else:
                 solution = torch.stack([torch.from_numpy(U.array_r.reshape(self.tensor_size)).to(device=self.device,dtype=self.tensor_dtype)], dim=0)
         else:
-            solution = torch.stack([self.sol_list[i] for i in range(len(self.sol_times))], dim=0)
-            ts.cancelMonitor()
+            tspan_sols = ts.getTimeSpanSolutions()
+            if self.use_dlpack:
+                solution = torch.stack([dlpack.from_dlpack(tspan_sols[i].toDLPack(mode='r')) for i in range(len(tspan_sols))], dim=0)
+            else:
+                solution = torch.stack([torch.from_numpy(tspan_sols[i].array_r.reshape(self.tensor_size)) for i in range(len(tspan_sols))], dim=0)
+            self.ts.setPostStep(None)
         return solution
 
     def petsc_adjointsolve(self, t, i=1):
@@ -459,10 +458,7 @@ class ODEPetsc(object):
         if t.shape[0] == 1:
             ts.adjointSetSteps(round((t/dt).abs().item()))
         else:
-            if isinstance(self.step_size, list):
-                ts.adjointSetSteps(self.cur_sol_steps[i])
-            else:
-                ts.adjointSetSteps(round(((t[i]-t[i-1])/dt).abs().item()))
+            ts.adjointSetSteps(self.cur_sol_steps[i])
         ts.adjointSolve()
         adj_u, adj_p = ts.getCostGradients()
         if self.use_dlpack:
