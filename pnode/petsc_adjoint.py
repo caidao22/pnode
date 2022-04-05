@@ -19,11 +19,11 @@ class RHSJacShell:
         """The Jacobian is A = shift*I - dFdU"""
         if self.ode_.use_dlpack:
             X.attachDLPackInfo(self.ode_.cached_U)
-            x_tensor = dlpack.from_dlpack(X.toDLPack())
+            x_tensor = dlpack.from_dlpack(X.toDLPack(mode='r'))
             Y.attachDLPackInfo(self.ode_.cached_U)
             y = dlpack.from_dlpack(Y.toDLPack())
         else:
-            x_tensor = torch.from_numpy(X.array.reshape(self.ode_.tensor_size)).to(device=self.ode_.device,dtype=self.ode_.tensor_dtype)
+            x_tensor = torch.from_numpy(X.array_r.reshape(self.ode_.tensor_size)).to(device=self.ode_.device,dtype=self.ode_.tensor_dtype)
             y = Y.array
         with torch.set_grad_enabled(True):
             self.ode_.cached_u_tensor.requires_grad_(True)
@@ -48,11 +48,11 @@ class RHSJacShell:
     def multTranspose(self, A, X, Y):
         if self.ode_.use_dlpack:
             X.attachDLPackInfo(self.ode_.cached_U)
-            x_tensor = dlpack.from_dlpack(X.toDLPack())
+            x_tensor = dlpack.from_dlpack(X.toDLPack(mode='r'))
             Y.attachDLPackInfo(self.ode_.cached_U)
             y = dlpack.from_dlpack(Y.toDLPack())
         else:
-            x_tensor = torch.from_numpy(X.array.reshape(self.ode_.tensor_size)).to(device=self.ode_.device,dtype=self.ode_.tensor_dtype)
+            x_tensor = torch.from_numpy(X.array_r.reshape(self.ode_.tensor_size)).to(device=self.ode_.device,dtype=self.ode_.tensor_dtype)
             y = Y.array
         f_params = tuple(self.ode_.func.parameters())
         with torch.set_grad_enabled(True):
@@ -75,7 +75,7 @@ class RHSJacShell:
     #    self.vshift = self.vshift * a
 
     # def shift(self, A, a):
-    #    self.vshift = self.vshift + a 
+    #    self.vshift = self.vshift + a
 
 class IJacShell:
     def __init__(self, ode):
@@ -87,11 +87,11 @@ class IJacShell:
         """The Jacobian is A = shift*I - dFdU"""
         if self.ode_.use_dlpack:
             X.attachDLPackInfo(self.ode_.cached_U)
-            self.x_tensor = dlpack.from_dlpack(X.toDLPack())
+            self.x_tensor = dlpack.from_dlpack(X.toDLPack(mode='r'))
             Y.attachDLPackInfo(self.ode_.cached_U)
             y = dlpack.from_dlpack(Y.toDLPack())
         else:
-            self.x_tensor = torch.from_numpy(X.array.reshape(self.ode_.tensor_size)).to(device=self.ode_.device,dtype=self.ode_.tensor_dtype)
+            self.x_tensor = torch.from_numpy(X.array_r.reshape(self.ode_.tensor_size)).to(device=self.ode_.device,dtype=self.ode_.tensor_dtype)
             y = Y.array
         with torch.set_grad_enabled(True):
             self.ode_.cached_u_tensor.requires_grad_(True)
@@ -109,17 +109,17 @@ class IJacShell:
         if self.ode_.use_dlpack:
             y.copy_(self.x_tensor.mul(self.ode_.shift)-jvp_u[0])
         else:
-            y[:] = self.ode_.shift*X.array - jvp_u[0].cpu().numpy().flatten()
+            y[:] = self.ode_.shift*X.array_r - jvp_u[0].cpu().numpy().flatten()
         # _mat_shift_and_scale(self, X, Y)
 
     def multTranspose(self, A, X, Y):
         if self.ode_.use_dlpack:
             X.attachDLPackInfo(self.ode_.cached_U)
-            self.x_tensor = dlpack.from_dlpack(X.toDLPack())
+            self.x_tensor = dlpack.from_dlpack(X.toDLPack(mode='r'))
             Y.attachDLPackInfo(self.ode_.cached_U)
             y = dlpack.from_dlpack(Y.toDLPack())
         else:
-            self.x_tensor = torch.from_numpy(X.array.reshape(self.ode_.tensor_size)).to(device=self.ode_.device,dtype=self.ode_.tensor_dtype)
+            self.x_tensor = torch.from_numpy(X.array_r.reshape(self.ode_.tensor_size)).to(device=self.ode_.device,dtype=self.ode_.tensor_dtype)
             y = Y.array
         f_params = tuple(self.ode_.func.parameters())
         with torch.set_grad_enabled(True):
@@ -135,7 +135,7 @@ class IJacShell:
         if self.ode_.use_dlpack:
             y.copy_(torch.mul(self.x_tensor,self.ode_.shift)-vjp_u)
         else:
-            y[:] = self.ode_.shift*X.array - vjp_u.cpu().numpy().flatten()
+            y[:] = self.ode_.shift*X.array_r - vjp_u.cpu().numpy().flatten()
 
     # def scale(self, A, a):
     #    self.vscale = self.vscale * a
@@ -183,8 +183,8 @@ class ODEPetsc(object):
         if self.use_dlpack:
             # have to call to() or type() to avoid a PETSc seg fault
             U.attachDLPackInfo(self.cached_U)
-            u_tensor = dlpack.from_dlpack(U.toDLPack())
-            # u_tensor = dlpack.from_dlpack(U.toDLPack()).view(self.tensor_size).type(self.tensor_type)
+            u_tensor = dlpack.from_dlpack(U.toDLPack(mode='r'))
+            # u_tensor = dlpack.from_dlpack(U.toDLPack(mode='r')).view(self.tensor_size).type(self.tensor_type)
             F.attachDLPackInfo(self.cached_U)
             dudt = dlpack.from_dlpack(F.toDLPack())
             # Resotring the handle set the offloadmask flag to PETSC_OFFLOAD_GPU, but it zeros out the GPU memory accidentally, which is probably a bug
@@ -194,16 +194,16 @@ class ODEPetsc(object):
             dudt.copy_(self.func(t, u_tensor))
         else:
             f = F.array
-            u_tensor = torch.from_numpy(U.array.reshape(self.tensor_size)).to(device=self.device,dtype=self.tensor_dtype)
+            u_tensor = torch.from_numpy(U.array_r.reshape(self.tensor_size)).to(device=self.device,dtype=self.tensor_dtype)
             dudt = self.func(t, u_tensor).cpu().detach().numpy()
             f[:] = dudt.flatten()
 
     def evalIFunction(self, ts, t, U, Udot, F):
         if self.use_dlpack:
             U.attachDLPackInfo(self.cached_U)
-            u_tensor = dlpack.from_dlpack(U.toDLPack())
+            u_tensor = dlpack.from_dlpack(U.toDLPack(mode='r'))
             Udot.attachDLPackInfo(self.cached_U)
-            udot_tensor = dlpack.from_dlpack(Udot.toDLPack())
+            udot_tensor = dlpack.from_dlpack(Udot.toDLPack(mode='r'))
             # Resotring the handle set the offloadmask flag to PETSC_OFFLOAD_GPU, but it zeros out the GPU memory accidentally, which is probably a bug
             if torch.cuda.is_initialized():
                 hdl = F.getCUDAHandle('w')
@@ -213,20 +213,20 @@ class ODEPetsc(object):
             dudt.copy_(udot_tensor-self.func(t, u_tensor))
         else:
             f = F.array
-            u_tensor = torch.from_numpy(U.array.reshape(self.tensor_size)).to(device=self.device,dtype=self.tensor_dtype)
+            u_tensor = torch.from_numpy(U.array_r.reshape(self.tensor_size)).to(device=self.device,dtype=self.tensor_dtype)
             dudt = self.func(t, u_tensor).cpu().detach().numpy()
-            f[:] = Udot.array - dudt.flatten()
+            f[:] = Udot.array_r - dudt.flatten()
 
     def evalJacobian(self, ts, t, U, Jac, JacPre):
         """Cache t and U for matrix-free Jacobian """
         self.t = t
         if self.use_dlpack:
             U.attachDLPackInfo(self.cached_U)
-            # x = dlpack.from_dlpack(U.toDLPack())
+            # x = dlpack.from_dlpack(U.toDLPack(mode='r'))
             # self.cached_u_tensor.copy_(x)
-            self.cached_u_tensor = dlpack.from_dlpack(U.toDLPack())
+            self.cached_u_tensor = dlpack.from_dlpack(U.toDLPack(mode='r'))
         else:
-            self.cached_u_tensor = torch.from_numpy(U.array.reshape(self.tensor_size)).to(device=self.device,dtype=self.tensor_dtype)
+            self.cached_u_tensor = torch.from_numpy(U.array_r.reshape(self.tensor_size)).to(device=self.device,dtype=self.tensor_dtype)
         # JacShell = Jac.getPythonContext()
         # JacShell.vshift = 0.0
         # JacShell.vscale = 1.0
@@ -237,11 +237,11 @@ class ODEPetsc(object):
         self.shift = shift
         if self.use_dlpack:
             U.attachDLPackInfo(self.cached_U)
-            # x = dlpack.from_dlpack(U.toDLPack())
+            # x = dlpack.from_dlpack(U.toDLPack(mode='r'))
             # self.cached_u_tensor.copy_(x)
-            self.cached_u_tensor = dlpack.from_dlpack(U.toDLPack())
+            self.cached_u_tensor = dlpack.from_dlpack(U.toDLPack(mode='r'))
         else:
-            self.cached_u_tensor = torch.from_numpy(U.array.reshape(self.tensor_size)).to(device=self.device,dtype=self.tensor_dtype)
+            self.cached_u_tensor = torch.from_numpy(U.array_r.reshape(self.tensor_size)).to(device=self.device,dtype=self.tensor_dtype)
         # JacShell = Jac.getPythonContext()
         # JacShell.vshift = 0.0
         # JacShell.vscale = 1.0
@@ -254,22 +254,46 @@ class ODEPetsc(object):
         """t and U are already cached in Jacobian evaluation functions"""
         pass
 
-    def saveSolution(self, ts, stepno, t, U):
+    def tspanPostStep(self, ts):
         """"Save the solutions at intermediate points"""
-        if self.cur_index < len(self.sol_list) and self.sol_list[self.cur_index] is None:
+        stepno = ts.getStepNumber()
+        t = ts.getTime()
+        if self.cur_sol_index < len(self.sol_times):
+            if isinstance(self.step_size, list):
+                if stepno < len(self.step_size):
+                    ts.setTimeStep(self.step_size[stepno])
+            self.cur_sol_steps[self.cur_sol_index] += 1
             if self.tensor_dtype == torch.double:
                 delta = 1e-5
             else:
                 delta = 1e-3
-            if abs(t-self.sol_times[self.cur_index]) < delta: # ugly workaround
-                if self.use_dlpack:
-                    unew = dlpack.from_dlpack(U.toDLPack()).clone()
-                else:
-                    unew = torch.from_numpy(U.array.reshape(self.tensor_size)).to(device=self.device,dtype=self.tensor_dtype,copy=True)
-                self.sol_list[self.cur_index] = unew
-                self.cur_index = self.cur_index+1
+            if abs(t-self.sol_times[self.cur_sol_index]) < delta: # ugly workaround
+                self.cur_sol_index = self.cur_sol_index+1
 
     def setupTS(self, u_tensor, func, step_size=0.01, enable_adjoint=True, implicit_form=False, use_dlpack=True, method='euler'):
+        """
+        Set up the PETSc ODE solver before it is used.
+
+        Args:
+            u_tensor: N-D Tensor giving meta information such as size, dtype and device, its values are not used.
+            func: The callback function passed to PETSc TS
+            step_size: Specifies the step size for the ODE solver. It can be a scalar or a list.
+                       The list corresponds to the step size at each time step.
+            enable_adjoint: If true, checkpointing will be used as required by the adjoint solver.
+            implicit_form: Specifies the formulation type for func. PETSc TS can handle explicit ODEs in the form
+                           ```
+                           du/dt = fun(t, u), u(t[0]) = u0
+                           ```
+                           and implicit ODEs in the form
+                           ```
+                           M(u)du/dt = fun(t, u), u(t[0]) = u0
+                           ```
+                           where M(u) is the mass matrix.
+            use_dlpack: DLPack allows in-palce conversion between PETSc objects and tensors. If disabled, numpy
+                        arrays will be used as a stepping stone for the conversion.
+            method: Specifies the time integration method for PETSc TS. The choice can be overwritten by command
+                    line option -ts_type <petsc_ts_method_name>
+        """
         tensor_dtype = u_tensor.dtype
         tensor_size = u_tensor.size()
         device = u_tensor.device
@@ -368,7 +392,8 @@ class ODEPetsc(object):
                 self.ts.setCostGradients(self.adj_u, self.adj_p)
         # self.ts.setMaxSteps(1000)
         self.step_size = step_size
-        self.ts.setTimeStep(step_size) # overwrite the command-line option
+        if not isinstance(step_size, list): # scalar
+            self.ts.setTimeStep(step_size) # overwrite the command-line option
         if enable_adjoint:
             self.ts.setSaveTrajectory()
         else:
@@ -376,7 +401,20 @@ class ODEPetsc(object):
         self.ts.setFromOptions()
 
     def odeint(self, u0, t):
-        """Return the solutions in tensor"""
+        """
+        Solves a system of ODEs
+            ```
+            du/dt = fun(t, u), u(t[0]) = u0
+            ```
+        where u is a Tensor or tuple of Tensors of any shape.
+
+        Args:
+            u0: N-D Tensor giving the initial condition.
+            t: 1-D Tensor specifying a sequence of time points.
+
+        Returns
+            solution: Tensor, where the frist dimension corresponds to the input time points.
+        """
         # self.u0 = u0.clone().detach() # clone a new tensor that will be used by PETSc
         if self.use_dlpack:
             self.u0 = u0.detach().clone() # increase the object reference, otherwise the dlpack object may be deleted early and cause a bug
@@ -386,31 +424,41 @@ class ODEPetsc(object):
         ts = self.ts
 
         self.sol_times = t.cpu().to(dtype=torch.float64)
-        self.cur_index = 0
+        if not isinstance(self.step_size, list):
+            ts.setTimeStep(self.step_size) # reset the step size because the last time step of TSSolve() may be changed even the fixed time step is used.
+        else:
+            ts.setTimeStep(self.step_size[0])
         if t.shape[0] == 1:
             ts.setTime(0.0)
             ts.setMaxTime(self.sol_times[0])
         else:
-            ts.setTime(self.sol_times[0])
-            ts.setMaxTime(self.sol_times[-1])
-            self.sol_list = [None]*list(t.size())[0]
-            self.ts.setMonitor(self.saveSolution)
+            ts.setTimeSpan(t.cpu().numpy()) # overwrite the command line option
+            self.cur_sol_steps = [0]*list(t.size())[0] # time steps taken to integrate from previous saved solution to current solution
+            self.cur_sol_index = 1 # skip 0th element
+            ts.setPostStep(self.tspanPostStep)
         ts.setStepNumber(0)
-        ts.setTimeStep(self.step_size) # reset the step size because the last time step of TSSolve() may be changed even the fixed time step is used.
         ts.solve(U)
         if t.shape[0] == 1:
-            solution = torch.stack([dlpack.from_dlpack(U.toDLPack()).clone()], dim=0)
+            if self.use_dlpack:
+                solution = torch.stack([dlpack.from_dlpack(U.toDLPack(mode='r')).clone()], dim=0)
+            else:
+                solution = torch.stack([torch.from_numpy(U.array_r.reshape(self.tensor_size)).to(device=self.device,dtype=self.tensor_dtype)], dim=0)
         else:
-            solution = torch.stack([self.sol_list[i] for i in range(len(self.sol_times))], dim=0)
-            ts.cancelMonitor()
+            tspan_sols = ts.getTimeSpanSolutions()
+            if self.use_dlpack:
+                solution = torch.stack([dlpack.from_dlpack(tspan_sols[i].toDLPack(mode='r')) for i in range(len(tspan_sols))], dim=0)
+            else:
+                solution = torch.stack([torch.from_numpy(tspan_sols[i].array_r.reshape(self.tensor_size)) for i in range(len(tspan_sols))], dim=0)
+            self.ts.setPostStep(None)
         return solution
 
-    def petsc_adjointsolve(self, t):
-        t = t.to(self.device, torch.float64)
+    def petsc_adjointsolve(self, t, i=1):
         ts = self.ts
         dt = ts.getTimeStep()
-        # print('do {} adjoint steps'.format(round(((t[1]-t[0])/dt).abs().item())))
-        ts.adjointSetSteps(round(((t[1]-t[0])/dt).abs().item()))
+        if t.shape[0] == 1:
+            ts.adjointSetSteps(round((t/dt).abs().item()))
+        else:
+            ts.adjointSetSteps(self.cur_sol_steps[i])
         ts.adjointSolve()
         adj_u, adj_p = ts.getCostGradients()
         if self.use_dlpack:
@@ -464,9 +512,9 @@ class OdeintAdjointMethod(torch.autograd.Function):
                 ctx.ode.adj_u[0].setArray(grad_output[0][-1].cpu().numpy())
                 ctx.ode.adj_p[0].zeroEntries()
             if T == 1: # forward time interval is [0,t[0]] when t has a single element
-                adj_u_tensor, adj_p_tensor = ctx.ode.petsc_adjointsolve(torch.tensor([t, 0.0]))
+                adj_u_tensor, adj_p_tensor = ctx.ode.petsc_adjointsolve(t)
             for i in range(T-1, 0, -1):
-                adj_u_tensor, adj_p_tensor = ctx.ode.petsc_adjointsolve(torch.tensor([t[i], t[i-1]]))
+                adj_u_tensor, adj_p_tensor = ctx.ode.petsc_adjointsolve(t, i)
                 adj_u_tensor.add_(grad_output[0][i-1]) # add forcing
                 if not ctx.ode.use_dlpack: # if use_dlpack=True, adj_u_tensor shares memory with adj_u[0], so no need to set the values explicitly
                     ctx.ode.adj_u[0].setArray(adj_u_tensor.cpu().numpy()) # update PETSc work vectors
