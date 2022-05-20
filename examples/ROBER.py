@@ -39,7 +39,6 @@ parser.add_argument('--adjoint', action='store_true')
 parser.add_argument('--implicit_form', action='store_true')
 parser.add_argument('--double_prec', action='store_true')
 parser.add_argument('--seed', type=int, default=0)
-parser.add_argument('--use_dlpack', action='store_true')
 parser.add_argument('--train_dir', type=str, metavar='PATH', default='./train_results' )
 parser.add_argument('--hotstart', action='store_true')
 parser.add_argument('--petsc_ts_adapt', action='store_true')
@@ -255,8 +254,8 @@ def validate_data():
     visualize(t, true_y, pred_y_validate, func_validate, 0, 'validate')
 
 if __name__ == '__main__':
-    petsc4py_path = os.path.join(os.environ['PETSC_DIR'],os.environ['PETSC_ARCH'],'lib')
-    sys.path.append(petsc4py_path)
+    # petsc4py_path = os.path.join(os.environ['PETSC_DIR'],os.environ['PETSC_ARCH'],'lib')
+    # sys.path.append(petsc4py_path)
     import petsc4py
     sys.argv = [sys.argv[0]] + unknown
     petsc4py.init(sys.argv)
