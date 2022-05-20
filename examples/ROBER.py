@@ -254,8 +254,8 @@ def validate_data():
     visualize(t, true_y, pred_y_validate, func_validate, 0, 'validate')
 
 if __name__ == '__main__':
-    petsc4py_path = os.path.join(os.environ['PETSC_DIR'],os.environ['PETSC_ARCH'],'lib')
-    sys.path.append(petsc4py_path)
+    # petsc4py_path = os.path.join(os.environ['PETSC_DIR'],os.environ['PETSC_ARCH'],'lib')
+    # sys.path.append(petsc4py_path)
     import petsc4py
     sys.argv = [sys.argv[0]] + unknown
     petsc4py.init(sys.argv)
