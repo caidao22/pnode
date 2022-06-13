@@ -88,9 +88,10 @@ This will make PNODE store the solutions and stage values in DRAM at each time s
 <img align="middle" src="./assets/checkpointing.png" alt="" width="500"/>
 </p>
 
+---
 If you found this tool useful in your research, please consider citing.
 ```
-@misc{zhang2022pnode,
+@misc{Zhang2022pnode,
   doi = {10.48550/ARXIV.2206.01298},
   url = {https://arxiv.org/abs/2206.01298}, 
   author = {Zhang, Hong and Zhao, Wenjun},
