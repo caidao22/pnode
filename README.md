@@ -87,3 +87,35 @@ This will make PNODE store the solutions and stage values in DRAM at each time s
 <p align="center">
 <img align="middle" src="./assets/checkpointing.png" alt="" width="500"/>
 </p>
+
+If you found this tool useful in your research, please consider citing.
+```
+@misc{zhang2022pnode,
+  doi = {10.48550/ARXIV.2206.01298},
+  url = {https://arxiv.org/abs/2206.01298}, 
+  author = {Zhang, Hong and Zhao, Wenjun},
+  title = {{PNODE: A memory-efficient neural ODE framework based on high-level adjoint differentiation}},
+  publisher = {arXiv},
+  year = {2022},
+}
+
+@article{Zhang2022tsadjoint,
+  author = {Zhang, Hong and Constantinescu, Emil M. and Smith, Barry F.},
+  title = {{PETSc TSAdjoint: A Discrete Adjoint ODE Solver for First-Order and Second-Order Sensitivity Analysis}},
+  journal = {SIAM Journal on Scientific Computing},
+  volume = {44},
+  number = {1},
+  pages = {C1-C24},
+  year = {2022},
+  doi = {10.1137/21M140078X},
+  eprint = {https://doi.org/10.1137/21M140078X},
+}
+
+@misc{Zhang2022cams,
+  doi = {10.48550/arXiv.2202.11890},
+  url = {https://arxiv.org/abs/2202.11890}, 
+  title={{Optimal Checkpointing for Adjoint Multistage Time-stepping Schemes}},
+  author={Hong Zhang and Emil Constantinescu},
+  year={2022},
+}
+```
