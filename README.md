@@ -27,7 +27,7 @@ After configure, follow the instructions on screen to do make all and make check
 
 After petsc4py is installed, install PNODE
 ```
-git clone https://github.com/pnode-dev/pnode.git
+git clone https://github.com/caidao22/pnode.git
 cd pnode
 pip3 install .
 ```
