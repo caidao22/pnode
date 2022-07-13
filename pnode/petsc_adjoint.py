@@ -446,7 +446,7 @@ class ODEPetsc(object):
         else:
             tspan_sols = ts.getTimeSpanSolutions()
             if self.use_dlpack:
-                solution = torch.stack([dlpack.from_dlpack(tspan_sols[i].toDLPack(mode='r')) for i in range(len(tspan_sols))], dim=0)
+                solution = torch.stack([dlpack.from_dlpack(tspan_sols[i].toDLPack(mode='r')).reshape(self.tensor_size) for i in range(len(tspan_sols))], dim=0)
             else:
                 solution = torch.stack([torch.from_numpy(tspan_sols[i].array_r.reshape(self.tensor_size)) for i in range(len(tspan_sols))], dim=0)
             self.ts.setPostStep(None)

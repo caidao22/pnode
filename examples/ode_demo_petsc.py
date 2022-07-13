@@ -37,7 +37,7 @@ parser.add_argument('--batch_size', type=int, default=20)
 parser.add_argument('--niters', type=int, default=2000)
 parser.add_argument('--test_freq', type=int, default=20)
 parser.add_argument('--viz', action='store_true')
-parser.add_argument('--gpu', type=int, default=0)
+parser.add_argument('--gpu', type=int, default=1)
 parser.add_argument('--step_size', type=float, default=0.025)
 parser.add_argument('--implicit_form', action='store_true')
 parser.add_argument('--double_prec', action='store_true')
@@ -67,11 +67,8 @@ from petsc4py import PETSc
 sys.path.append("../") # for quick debugging
 from pnode import petsc_adjoint
 
-if torch.cuda.is_available():
-  device = torch.device('cuda:' + str(gpu))
-  torch.cuda.set_device(gpu)
-else:
-  device = torch.device('cpu')
+os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 # device = torch.device('cpu')
 if double_prec:
