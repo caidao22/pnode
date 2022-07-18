@@ -450,8 +450,8 @@ class ODEPetsc(object):
             else:
                 solution = torch.stack([torch.from_numpy(tspan_sols[i].array_r.reshape(self.tensor_size)) for i in range(len(tspan_sols))], dim=0)
             self.ts.setPostStep(None)
-        if self.cur_sol_index != len(self.sol_times):
-            raise Exception("TSSolve fails to step on all the specified points")
+            if self.cur_sol_index != len(self.sol_times):
+                raise Exception("TSSolve fails to step on all the specified points")
         return solution
 
     def petsc_adjointsolve(self, t, i=1):
