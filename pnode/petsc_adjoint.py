@@ -107,9 +107,15 @@ class IJacShell:
             )
         if jvp_u[0] is None: jvp_u[0] = torch.zeros_like(y)
         if self.ode_.use_dlpack:
-            y.copy_(self.x_tensor.mul(self.ode_.shift)-jvp_u[0])
+            if self.ode_.mass is None:
+                y.copy_(self.x_tensor.mul(self.ode_.shift)-jvp_u[0])
+            else:
+                y.copy_(torch.matmul(self.ode_.mass,self.x_tensor.mul(self.ode_.shift))-jvp_u[0])
         else:
-            y[:] = self.ode_.shift*X.array_r - jvp_u[0].cpu().numpy().flatten()
+            if self.ode_.mass is None:
+                y[:] = self.ode_.shift*X.array_r - jvp_u[0].cpu().numpy().flatten()
+            else:
+                y[:] = self.ode_.shift*self.ode_.mass.cpu().numpy().dot(X.array_r) - jvp_u[0].cpu().numpy().flatten()
         # _mat_shift_and_scale(self, X, Y)
 
     def multTranspose(self, A, X, Y):
@@ -133,9 +139,15 @@ class IJacShell:
         # vjp_u = tuple(torch.zeros_like(y_) if vjp_u_ is None else vjp_u_ for vjp_u_, y_ in zip(vjp_u, y))
         if vjp_u is None: vjp_u = torch.zeros_like(y)
         if self.ode_.use_dlpack:
-            y.copy_(torch.mul(self.x_tensor,self.ode_.shift)-vjp_u)
+            if self.ode_.mass is None:
+                y.copy_(torch.mul(self.x_tensor,self.ode_.shift)-vjp_u)
+            else:
+                y.copy_(torch.matmul(self.ode_.mass.transpose(-2,-1),torch.mul(self.x_tensor,self.ode_.shift))-vjp_u)
         else:
-            y[:] = self.ode_.shift*X.array_r - vjp_u.cpu().numpy().flatten()
+            if self.ode_.mass is None:
+                y[:] = self.ode_.shift*X.array_r - vjp_u.cpu().numpy().flatten()
+            else:
+                y[:] = self.ode_.shift*self.ode_.mass.transpose(-2,-1).cpu().numpy().dot(X.array_r) - vjp_u.cpu().numpy().flatten()
 
     # def scale(self, A, a):
     #    self.vscale = self.vscale * a
@@ -178,6 +190,7 @@ class ODEPetsc(object):
         self.tensor_dtype = None
         self.adj_u = []
         self.adj_p = []
+        self.mass = None
 
     def evalFunction(self, ts, t, U, F):
         if self.use_dlpack:
@@ -210,12 +223,18 @@ class ODEPetsc(object):
                 F.restoreCUDAHandle(hdl,'w')
             F.attachDLPackInfo(self.cached_U)
             dudt = dlpack.from_dlpack(F.toDLPack())
-            dudt.copy_(udot_tensor-self.func(t, u_tensor))
+            if self.mass is None:
+                dudt.copy_(udot_tensor-self.func(t, u_tensor))
+            else:
+                dudt.copy_(torch.matmul(self.mass,udot_tensor)-self.func(t, u_tensor))
         else:
             f = F.array
             u_tensor = torch.from_numpy(U.array_r.reshape(self.tensor_size)).to(device=self.device,dtype=self.tensor_dtype)
             dudt = self.func(t, u_tensor).cpu().detach().numpy()
-            f[:] = Udot.array_r - dudt.flatten()
+            if self.mass is None:
+                f[:] = Udot.array_r - dudt.flatten()
+            else:
+                f[:] = self.mass.cpu().numpy().dot(Udot.array_r) - dudt.flatten()
 
     def evalJacobian(self, ts, t, U, Jac, JacPre):
         """Cache t and U for matrix-free Jacobian """
@@ -270,7 +289,7 @@ class ODEPetsc(object):
             if abs(t-self.sol_times[self.cur_sol_index]) < delta: # ugly workaround
                 self.cur_sol_index = self.cur_sol_index+1
 
-    def setupTS(self, u_tensor, func, step_size=0.01, enable_adjoint=True, implicit_form=False, use_dlpack=True, method='euler'):
+    def setupTS(self, u_tensor, func, step_size=0.01, enable_adjoint=True, implicit_form=False, use_dlpack=True, method='euler', mass=None):
         """
         Set up the PETSc ODE solver before it is used.
 
@@ -293,6 +312,7 @@ class ODEPetsc(object):
                         arrays will be used as a stepping stone for the conversion.
             method: Specifies the time integration method for PETSc TS. The choice can be overwritten by command
                     line option -ts_type <petsc_ts_method_name>
+            mass: Mass matrix for DAE, should be a tensor
         """
         tensor_dtype = u_tensor.dtype
         tensor_size = u_tensor.size()
@@ -302,6 +322,8 @@ class ODEPetsc(object):
             self.func = func
             self.flat_params = _flatten(func.parameters())
             self.np = self.flat_params.numel()
+        if self.mass != mass:
+            self.mass = mass
         #self.tensor_type = u_tensor.type()
         #self.cached_u_tensor = u_tensor.detach().clone()
         # check if the input tensor has a different type, device or size
