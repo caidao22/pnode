@@ -54,7 +54,7 @@ class RHSJacShell:
         else:
             x_tensor = torch.from_numpy(X.array_r.reshape(self.ode_.tensor_size)).to(device=self.ode_.device,dtype=self.ode_.tensor_dtype)
             y = Y.array
-        f_params = tuple(self.ode_.func.parameters())
+        f_params = tuple(filter(lambda p: p.requires_grad, self.ode_.func.parameters()))
         with torch.set_grad_enabled(True):
             self.ode_.cached_u_tensor.requires_grad_(True)
             func_eval = self.ode_.func(self.ode_.t, self.ode_.cached_u_tensor)
@@ -127,7 +127,7 @@ class IJacShell:
         else:
             self.x_tensor = torch.from_numpy(X.array_r.reshape(self.ode_.tensor_size)).to(device=self.ode_.device,dtype=self.ode_.tensor_dtype)
             y = Y.array
-        f_params = tuple(self.ode_.func.parameters())
+        f_params = tuple(filter(lambda p: p.requires_grad, self.ode_.func.parameters()))
         with torch.set_grad_enabled(True):
             self.ode_.cached_u_tensor.requires_grad_(True)
             func_eval = self.ode_.func(self.ode_.t, self.ode_.cached_u_tensor)
@@ -166,7 +166,7 @@ class JacPShell:
             y = dlpack.from_dlpack(Y.toDLPack())
         else:
             y = Y.array
-        f_params = tuple(self.ode_.func.parameters())
+        f_params = tuple(filter(lambda p: p.requires_grad, self.ode_.func.parameters()))
         vjp_params = _flatten_convert_none_to_zeros(self.ode_.vjp_params, f_params)
         if self.ode_.use_dlpack:
             if self.ode_.ijacp:
@@ -320,7 +320,7 @@ class ODEPetsc(object):
         n = u_tensor.numel()
         if self.func != func:
             self.func = func
-            self.flat_params = _flatten(func.parameters())
+            self.flat_params = _flatten(filter(lambda p: p.requires_grad, func.parameters()))
             self.np = self.flat_params.numel()
         if self.mass != mass:
             self.mass = mass
@@ -470,7 +470,7 @@ class ODEPetsc(object):
             if self.use_dlpack:
                 solution = torch.stack([dlpack.from_dlpack(tspan_sols[i].toDLPack(mode='r')).reshape(self.tensor_size) for i in range(len(tspan_sols))], dim=0)
             else:
-                solution = torch.stack([torch.from_numpy(tspan_sols[i].array_r.reshape(self.tensor_size)) for i in range(len(tspan_sols))], dim=0)
+                solution = torch.stack([torch.from_numpy(tspan_sols[i].array_r.reshape(self.tensor_size)).to(device=self.device,dtype=self.tensor_dtype) for i in range(len(tspan_sols))], dim=0)
             self.ts.setPostStep(None)
             if self.cur_sol_index != len(self.sol_times):
                 raise Exception("TSSolve fails to step on all the specified points")
