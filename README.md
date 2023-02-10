@@ -91,7 +91,7 @@ This will make PNODE store the solutions and stage values in DRAM at each time s
 ---
 If you found this tool useful in your research, please consider citing.
 ```
-@misc{Zhang2022pnode,
+@article{Zhang2022pnode,
   author={Zhang, Hong and Zhao, Wenjun},
   journal={IEEE Transactions on Artificial Intelligence}, 
   title={A Memory-Efficient Neural Ordinary Differential Equation Framework Based on High-Level Adjoint Differentiation}, 
@@ -114,7 +114,7 @@ If you found this tool useful in your research, please consider citing.
   eprint = {https://doi.org/10.1137/21M140078X},
 }
 
-@misc{Zhang2023cams,
+@article{Zhang2023cams,
 title = {Optimal checkpointing for adjoint multistage time-stepping schemes},
 journal = {Journal of Computational Science},
 volume = {66},
