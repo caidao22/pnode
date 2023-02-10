@@ -114,11 +114,15 @@ If you found this tool useful in your research, please consider citing.
   eprint = {https://doi.org/10.1137/21M140078X},
 }
 
-@misc{Zhang2022cams,
-  doi = {10.48550/arXiv.2202.11890},
-  url = {https://arxiv.org/abs/2202.11890}, 
-  title={{Optimal Checkpointing for Adjoint Multistage Time-stepping Schemes}},
-  author={Hong Zhang and Emil Constantinescu},
-  year={2022},
+@misc{Zhang2023cams,
+title = {Optimal checkpointing for adjoint multistage time-stepping schemes},
+journal = {Journal of Computational Science},
+volume = {66},
+pages = {101913},
+year = {2023},
+issn = {1877-7503},
+doi = {https://doi.org/10.1016/j.jocs.2022.101913},
+url = {https://www.sciencedirect.com/science/article/pii/S1877750322002721},
+author = {Hong Zhang and Emil M. Constantinescu},
 }
 ```
