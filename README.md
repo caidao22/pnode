@@ -92,12 +92,14 @@ This will make PNODE store the solutions and stage values in DRAM at each time s
 If you found this tool useful in your research, please consider citing.
 ```
 @misc{Zhang2022pnode,
-  doi = {10.48550/ARXIV.2206.01298},
-  url = {https://arxiv.org/abs/2206.01298}, 
-  author = {Zhang, Hong and Zhao, Wenjun},
-  title = {{PNODE: A memory-efficient neural ODE framework based on high-level adjoint differentiation}},
-  publisher = {arXiv},
-  year = {2022},
+  author={Zhang, Hong and Zhao, Wenjun},
+  journal={IEEE Transactions on Artificial Intelligence}, 
+  title={A Memory-Efficient Neural Ordinary Differential Equation Framework Based on High-Level Adjoint Differentiation}, 
+  year={2022},
+  volume={},
+  number={},
+  pages={1-11},
+  doi={10.1109/TAI.2022.3230632}}
 }
 
 @article{Zhang2022tsadjoint,
