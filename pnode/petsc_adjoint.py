@@ -27,7 +27,7 @@ class RHSJacShell:
             y = Y.array
         with torch.set_grad_enabled(True):
             self.ode_.cached_u_tensor.requires_grad_(True)
-            func_eval = self.ode_.func(self.ode_.t, self.ode_.cached_u_tensor)
+            func_eval = self.ode_.funcEX(self.ode_.t, self.ode_.cached_u_tensor)
             vjp_u = torch.autograd.grad(
                 func_eval, self.ode_.cached_u_tensor, x_tensor,
                 allow_unused=True, create_graph=True
@@ -54,10 +54,10 @@ class RHSJacShell:
         else:
             x_tensor = torch.from_numpy(X.array_r.reshape(self.ode_.tensor_size)).to(device=self.ode_.device,dtype=self.ode_.tensor_dtype)
             y = Y.array
-        f_params = tuple(filter(lambda p: p.requires_grad, self.ode_.func.parameters()))
+        f_params = tuple(filter(lambda p: p.requires_grad, self.ode_.funcEX.parameters()))
         with torch.set_grad_enabled(True):
             self.ode_.cached_u_tensor.requires_grad_(True)
-            func_eval = self.ode_.func(self.ode_.t, self.ode_.cached_u_tensor)
+            func_eval = self.ode_.funcEX(self.ode_.t, self.ode_.cached_u_tensor)
             vjp_u, *self.ode_.vjp_params = torch.autograd.grad(
                func_eval, (self.ode_.cached_u_tensor,) + f_params,
                x_tensor, allow_unused=True, retain_graph=True
@@ -95,7 +95,7 @@ class IJacShell:
             y = Y.array
         with torch.set_grad_enabled(True):
             self.ode_.cached_u_tensor.requires_grad_(True)
-            func_eval = self.ode_.func(self.ode_.t, self.ode_.cached_u_tensor)
+            func_eval = self.ode_.funcIM(self.ode_.t, self.ode_.cached_u_tensor)
             self.x_tensor = self.x_tensor.detach().requires_grad_(True)
             vjp_u = torch.autograd.grad(
                 func_eval, self.ode_.cached_u_tensor, self.x_tensor,
@@ -127,10 +127,10 @@ class IJacShell:
         else:
             self.x_tensor = torch.from_numpy(X.array_r.reshape(self.ode_.tensor_size)).to(device=self.ode_.device,dtype=self.ode_.tensor_dtype)
             y = Y.array
-        f_params = tuple(filter(lambda p: p.requires_grad, self.ode_.func.parameters()))
+        f_params = tuple(filter(lambda p: p.requires_grad, self.ode_.funcIM.parameters()))
         with torch.set_grad_enabled(True):
             self.ode_.cached_u_tensor.requires_grad_(True)
-            func_eval = self.ode_.func(self.ode_.t, self.ode_.cached_u_tensor)
+            func_eval = self.ode_.funcIM(self.ode_.t, self.ode_.cached_u_tensor)
             vjp_u, *self.ode_.vjp_params = torch.autograd.grad(
                func_eval, (self.ode_.cached_u_tensor,) + f_params,
                self.x_tensor, allow_unused=True, retain_graph=True
@@ -156,7 +156,7 @@ class IJacShell:
     # def shift(self, A, a):
     #    self.vshift = self.vshift + a
 
-class JacPShell:
+class IJacPShell:
     def __init__(self, ode):
         self.ode_ = ode
 
@@ -166,33 +166,68 @@ class JacPShell:
             y = dlpack.from_dlpack(Y.toDLPack())
         else:
             y = Y.array
-        f_params = tuple(filter(lambda p: p.requires_grad, self.ode_.func.parameters()))
+        f_params = tuple(filter(lambda p: p.requires_grad, self.ode_.funcIM.parameters()))
         vjp_params = _flatten_convert_none_to_zeros(self.ode_.vjp_params, f_params)
+        if self.ode_.imex:
+            vjp_params = torch.cat(
+                (
+                    vjp_params,
+                    torch.zeros(self.ode_.npEX).to(
+                        device=self.ode_.device, dtype=self.ode_.tensor_dtype
+                    ),
+                )
+            )
         if self.ode_.use_dlpack:
-            if self.ode_.ijacp:
-                y.copy_(torch.mul(vjp_params,-1.0))
-            else:
-                y.copy_(vjp_params)
+            y.copy_(torch.mul(vjp_params,-1.0))
         else:
-            if self.ode_.ijacp:
-                y[:] = -vjp_params.cpu().numpy().flatten()
-            else:
-                y[:] = vjp_params.cpu().numpy().flatten()
+            y[:] = -vjp_params.cpu().numpy().flatten()
+
+class RHSJacPShell:
+    def __init__(self, ode):
+        self.ode_ = ode
+
+    def multTranspose(self, A, X, Y):
+        if self.ode_.use_dlpack:
+            Y.attachDLPackInfo(self.ode_.adj_p[0])
+            y = dlpack.from_dlpack(Y.toDLPack())
+        else:
+            y = Y.array
+        f_params = tuple(filter(lambda p: p.requires_grad, self.ode_.funcEX.parameters()))
+        vjp_params = _flatten_convert_none_to_zeros(self.ode_.vjp_params, f_params)
+        if self.ode_.imex:
+            vjp_params = torch.cat(
+                (
+                    torch.zeros(self.ode_.npIM).to(
+                        device=self.ode_.device, dtype=self.ode_.tensor_dtype
+                    ),
+                    vjp_params,
+                )
+            )
+        if self.ode_.use_dlpack:
+            y.copy_(vjp_params)
+        else:
+            y[:] = vjp_params.cpu().numpy().flatten()
 
 class ODEPetsc(object):
     comm = PETSc.COMM_SELF
 
     def __init__(self):
         self.ts = PETSc.TS().create(comm=self.comm)
-        self.func = None
         self.n = 0
         self.tensor_size = None
         self.tensor_dtype = None
         self.adj_u = []
         self.adj_p = []
         self.mass = None
+        self.funcIM = None
+        self.funcEX = None
+        self.flat_params = None
+        self.npIM = None
+        self.npEX = None
+        self.np = None
+        self.imex = None
 
-    def evalFunction(self, ts, t, U, F):
+    def evalRHSFunction(self, ts, t, U, F):
         if self.use_dlpack:
             # have to call to() or type() to avoid a PETSc seg fault
             U.attachDLPackInfo(self.cached_U)
@@ -204,11 +239,11 @@ class ODEPetsc(object):
             if torch.cuda.is_initialized():
                 hdl = F.getCUDAHandle('w')
                 F.restoreCUDAHandle(hdl,'w')
-            dudt.copy_(self.func(t, u_tensor))
+            dudt.copy_(self.funcEX(t, u_tensor))
         else:
             f = F.array
             u_tensor = torch.from_numpy(U.array_r.reshape(self.tensor_size)).to(device=self.device,dtype=self.tensor_dtype)
-            dudt = self.func(t, u_tensor).cpu().detach().numpy()
+            dudt = self.funcEX(t, u_tensor).cpu().detach().numpy()
             f[:] = dudt.flatten()
 
     def evalIFunction(self, ts, t, U, Udot, F):
@@ -224,19 +259,19 @@ class ODEPetsc(object):
             F.attachDLPackInfo(self.cached_U)
             dudt = dlpack.from_dlpack(F.toDLPack())
             if self.mass is None:
-                dudt.copy_(udot_tensor-self.func(t, u_tensor))
+                dudt.copy_(udot_tensor-self.funcIM(t, u_tensor))
             else:
-                dudt.copy_(torch.matmul(self.mass,udot_tensor)-self.func(t, u_tensor))
+                dudt.copy_(torch.matmul(self.mass,udot_tensor)-self.funcIM(t, u_tensor))
         else:
             f = F.array
             u_tensor = torch.from_numpy(U.array_r.reshape(self.tensor_size)).to(device=self.device,dtype=self.tensor_dtype)
-            dudt = self.func(t, u_tensor).cpu().detach().numpy()
+            dudt = self.funcIM(t, u_tensor).cpu().detach().numpy()
             if self.mass is None:
                 f[:] = Udot.array_r - dudt.flatten()
             else:
                 f[:] = self.mass.cpu().numpy().dot(Udot.array_r) - dudt.flatten()
 
-    def evalJacobian(self, ts, t, U, Jac, JacPre):
+    def evalRHSJacobian(self, ts, t, U, Jac, JacPre):
         """Cache t and U for matrix-free Jacobian """
         self.t = t
         if self.use_dlpack:
@@ -265,7 +300,7 @@ class ODEPetsc(object):
         # JacShell.vshift = 0.0
         # JacShell.vscale = 1.0
 
-    def evalJacobianP(self, ts, t, U, Jacp):
+    def evalRHSJacobianP(self, ts, t, U, Jacp):
         """t and U are already cached in Jacobian evaluation functions"""
         pass
 
@@ -289,7 +324,7 @@ class ODEPetsc(object):
             if abs(t-self.sol_times[self.cur_sol_index]) < delta: # ugly workaround
                 self.cur_sol_index = self.cur_sol_index+1
 
-    def setupTS(self, u_tensor, func, step_size=0.01, enable_adjoint=True, implicit_form=False, use_dlpack=True, method='euler', mass=None):
+    def setupTS(self, u_tensor, func, step_size=0.01, enable_adjoint=True, implicit_form=False, use_dlpack=True, method='euler', mass=None, imex_form=False, func2=None):
         """
         Set up the PETSc ODE solver before it is used.
 
@@ -313,15 +348,34 @@ class ODEPetsc(object):
             method: Specifies the time integration method for PETSc TS. The choice can be overwritten by command
                     line option -ts_type <petsc_ts_method_name>
             mass: Mass matrix for DAE, should be a tensor
+            imex_form: Flag for using the IMEX form to define the ODE
+                           ```
+                           du/dt = func(t, u) + func2(t, u), u(t[0]) = u0
+                           ```
+                           where func will be treated implicitly and func2 explicitly.
+            func2: An additional callback function. In the IMEX setting, this function is treated explicitly while func() is treated implicitly.In non-IMEX settings, this function is ignored.
         """
+        if imex_form and func2 is None:
+            raise ValueError('func2 must be provided to enable imex_form=True')
+        self.imex = imex_form
         tensor_dtype = u_tensor.dtype
         tensor_size = u_tensor.size()
         device = u_tensor.device
         n = u_tensor.numel()
-        if self.func != func:
-            self.func = func
-            self.flat_params = _flatten(filter(lambda p: p.requires_grad, func.parameters()))
-            self.np = self.flat_params.numel()
+        if self.funcIM != func or self.funcEX != func2:
+            if imex_form:
+                self.funcIM = func
+                self.funcEX = func2
+                self.flat_params = _flatten(filter(lambda p: p.requires_grad, func.parameters()))
+                self.npIM = self.flat_params.numel()
+                self.flat_params = torch.cat((self.flat_params, _flatten(filter(lambda p: p.requires_grad, func2.parameters()))))
+                self.np = self.flat_params.numel()
+                self.npEX = self.np - self.npIM
+            else: # func2 is ignored
+                self.funcIM = func
+                self.funcEX = func
+                self.flat_params = _flatten(filter(lambda p: p.requires_grad, func.parameters()))
+                self.np = self.npIM = self.npEX = self.flat_params.numel()
         if self.mass != mass:
             self.mass = mass
         #self.tensor_type = u_tensor.type()
@@ -351,53 +405,65 @@ class ODEPetsc(object):
                 self.ts.setType(PETSc.TS.Type.BE)
             elif method == 'cn':
                 self.ts.setType(PETSc.TS.Type.CN)
+            elif method == 'imex':
+                self.ts.setType(PETSc.TS.Type.ARKIMEX)
             if use_dlpack:
                 # self.cached_U = PETSc.Vec().createWithDLPack(dlpack.to_dlpack(self.cached_u_tensor)) # convert to PETSc vec
                 self.cached_U = PETSc.Vec().createWithDLPack(dlpack.to_dlpack(u_tensor.detach().clone())) # convert to PETSc vec, used only for providing info
             else:
                 self.cached_U = PETSc.Vec().createWithArray(u_tensor.detach().clone().cpu().numpy()) # convert to PETSc vec
-            self.f_tensor = u_tensor.detach().clone()
-            if use_dlpack:
-                F = PETSc.Vec().createWithDLPack(dlpack.to_dlpack(self.f_tensor))
-            else:
-                F = PETSc.Vec().createWithArray(self.f_tensor.cpu().numpy())
-            if implicit_form:
-                self.ts.setIFunction(self.evalIFunction, F)
-            else:
-                self.ts.setRHSFunction(self.evalFunction, F)
-            Jac = PETSc.Mat().create()
-            Jac.setSizes([self.n, self.n])
-            Jac.setType('python')
-            if implicit_form:
+            if implicit_form or imex_form:
+                self.fIM_tensor = u_tensor.detach().clone()
+                if use_dlpack:
+                    FIM = PETSc.Vec().createWithDLPack(dlpack.to_dlpack(self.fIM_tensor))
+                else:
+                    FIM = PETSc.Vec().createWithArray(self.fIM_tensor.cpu().numpy())
+                self.ts.setIFunction(self.evalIFunction, FIM)
+                IJac = PETSc.Mat().create()
+                IJac.setSizes([self.n, self.n])
+                IJac.setType('python')
                 shell = IJacShell(self)
-            else :
+                IJac.setPythonContext(shell)
+                IJac.setUp()
+                IJac.assemble()
+                self.ts.setIJacobian(self.evalIJacobian, IJac)
+            if not implicit_form or imex_form:
+                self.f_tensor = u_tensor.detach().clone()
+                if use_dlpack:
+                    F = PETSc.Vec().createWithDLPack(dlpack.to_dlpack(self.f_tensor))
+                else:
+                    F = PETSc.Vec().createWithArray(self.f_tensor.cpu().numpy())
+                self.ts.setRHSFunction(self.evalRHSFunction, F)
+                RHSJac = PETSc.Mat().create()
+                RHSJac.setSizes([self.n, self.n])
+                RHSJac.setType('python')
                 shell = RHSJacShell(self)
-            Jac.setPythonContext(shell)
-            Jac.setUp()
-            Jac.assemble()
-            if implicit_form:
-                self.ts.setIJacobian(self.evalIJacobian, Jac)
-            else:
-                self.ts.setRHSJacobian(self.evalJacobian, Jac)
-
+                RHSJac.setPythonContext(shell)
+                RHSJac.setUp()
+                RHSJac.assemble()
+                self.ts.setRHSJacobian(self.evalRHSJacobian, RHSJac)
             # check if it is already enabled or the func has changed
             #if enable_adjoint and not self.adj_u and not self.adj_p:
             if enable_adjoint:
                 self.ts.adjointReset()
-                Jacp = PETSc.Mat().create()
-                Jacp.setSizes([self.n, self.np])
-                Jacp.setType('python')
-                shell = JacPShell(self)
-                Jacp.setPythonContext(shell)
-                Jacp.setUp()
-                Jacp.assemble()
-                if implicit_form :
-                    self.ijacp = True
-                    self.ts.setIJacobianP(self.evalIJacobianP, Jacp)
-                else :
-                    self.ijacp = False
-                    self.ts.setRHSJacobianP(self.evalJacobianP, Jacp)
-
+                if implicit_form or imex_form:
+                    IJacp = PETSc.Mat().create()
+                    IJacp.setSizes([self.n, self.np])
+                    IJacp.setType('python')
+                    shell = IJacPShell(self)
+                    IJacp.setPythonContext(shell)
+                    IJacp.setUp()
+                    IJacp.assemble()
+                    self.ts.setIJacobianP(self.evalIJacobianP, IJacp)
+                if not implicit_form or imex_form :
+                    RHSJacp = PETSc.Mat().create()
+                    RHSJacp.setSizes([self.n, self.np])
+                    RHSJacp.setType('python')
+                    shell = RHSJacPShell(self)
+                    RHSJacp.setPythonContext(shell)
+                    RHSJacp.setUp()
+                    RHSJacp.assemble()
+                    self.ts.setRHSJacobianP(self.evalRHSJacobianP, RHSJacp)
                 self.adj_u = []
                 if self.use_dlpack:
                     self.adj_u_tensor = u_tensor.detach().clone()
@@ -497,7 +563,7 @@ class ODEPetsc(object):
         # We need this in order to access the variables inside this module,
         # since we have no other way of getting variables along the execution path.
 
-        if not isinstance(self.func, nn.Module):
+        if not isinstance(self.funcIM, nn.Module):
             raise ValueError('func is required to be an instance of nn.Module.')
 
         ys = OdeintAdjointMethod.apply(y0,t,self.flat_params,self)
