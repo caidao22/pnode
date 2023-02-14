@@ -5,17 +5,13 @@ import datasets
 
 
 class GAS:
-
     class Data:
-
         def __init__(self, data):
-
             self.x = data.astype(np.float32)
             self.N = self.x.shape[0]
 
     def __init__(self):
-
-        file = datasets.root + 'gas/ethylene_CO.pickle'
+        file = datasets.root + "gas/ethylene_CO.pickle"
         trn, val, tst = load_data_and_clean_and_split(file)
 
         self.trn = self.Data(trn)
@@ -26,7 +22,6 @@ class GAS:
 
 
 def load_data(file):
-
     data = pd.read_pickle(file)
     # data = pd.read_pickle(file).sample(frac=0.25)
     # data.to_pickle(file)
@@ -44,7 +39,6 @@ def get_correlation_numbers(data):
 
 
 def load_data_and_clean(file):
-
     data = load_data(file)
     B = get_correlation_numbers(data)
 
@@ -60,7 +54,6 @@ def load_data_and_clean(file):
 
 
 def load_data_and_clean_and_split(file):
-
     data = load_data_and_clean(file).values
     N_test = int(0.1 * data.shape[0])
     data_test = data[-N_test:]

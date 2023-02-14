@@ -13,7 +13,9 @@ class DiffEqWrapper(nn.Module):
         elif len(signature(self.module.forward).parameters) == 2:
             self.diffeq = self.module
         else:
-            raise ValueError("Differential equation needs to either take (t, y) or (y,) as input.")
+            raise ValueError(
+                "Differential equation needs to either take (t, y) or (y,) as input."
+            )
 
     def forward(self, t, y):
         return self.diffeq(t, y)
@@ -29,7 +31,9 @@ def diffeq_wrapper(layer):
 class ReshapeDiffEq(nn.Module):
     def __init__(self, input_shape, net):
         super(ReshapeDiffEq, self).__init__()
-        assert len(signature(net.forward).parameters) == 2, "use diffeq_wrapper before reshape_wrapper."
+        assert (
+            len(signature(net.forward).parameters) == 2
+        ), "use diffeq_wrapper before reshape_wrapper."
         self.input_shape = input_shape
         self.net = net
 

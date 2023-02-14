@@ -10,7 +10,9 @@ def makedirs(dirname):
         os.makedirs(dirname)
 
 
-def get_logger(logpath, filepath, package_files=[], displaying=True, saving=True, debug=False):
+def get_logger(
+    logpath, filepath, package_files=[], displaying=True, saving=True, debug=False
+):
     logger = logging.getLogger()
     if debug:
         level = logging.DEBUG
@@ -77,7 +79,7 @@ class RunningAverageMeter(object):
 
 def inf_generator(iterable):
     """Allows training with DataLoaders in a single infinite loop:
-        for i, (x, y) in enumerate(inf_generator(train_loader)):
+    for i, (x, y) in enumerate(inf_generator(train_loader)):
     """
     iterator = iterable.__iter__()
     while True:
@@ -90,12 +92,12 @@ def inf_generator(iterable):
 def save_checkpoint(state, save, epoch):
     if not os.path.exists(save):
         os.makedirs(save)
-    filename = os.path.join(save, 'checkpt-%04d.pth' % epoch)
+    filename = os.path.join(save, "checkpt-%04d.pth" % epoch)
     torch.save(state, filename)
 
 
 def isnan(tensor):
-    return (tensor != tensor)
+    return tensor != tensor
 
 
 def logsumexp(value, dim=None, keepdim=False):

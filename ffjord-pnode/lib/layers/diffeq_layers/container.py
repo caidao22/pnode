@@ -5,8 +5,7 @@ from .wrappers import diffeq_wrapper
 
 
 class SequentialDiffEq(nn.Module):
-    """A container for a sequential chain of layers. Supports both regular and diffeq layers.
-    """
+    """A container for a sequential chain of layers. Supports both regular and diffeq layers."""
 
     def __init__(self, *layers):
         super(SequentialDiffEq, self).__init__()

@@ -2,8 +2,7 @@ import torch.nn as nn
 
 
 class SequentialFlow(nn.Module):
-    """A generalized nn.Sequential container for normalizing flows.
-    """
+    """A generalized nn.Sequential container for normalizing flows."""
 
     def __init__(self, layersList):
         super(SequentialFlow, self).__init__()

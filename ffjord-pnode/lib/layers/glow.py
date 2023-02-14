@@ -4,13 +4,11 @@ import torch.nn.functional as F
 
 
 class BruteForceLayer(nn.Module):
-
     def __init__(self, dim):
         super(BruteForceLayer, self).__init__()
         self.weight = nn.Parameter(torch.eye(dim))
 
     def forward(self, x, logpx=None, reverse=False):
-
         if not reverse:
             y = F.linear(x, self.weight)
             if logpx is None:

@@ -22,7 +22,10 @@ class RegularizedODEfunc(nn.Module):
             dstate = self.odefunc(t, (x, logp))
             if len(state) > 2:
                 dx, dlogp = dstate[:2]
-                reg_states = tuple(reg_fn(x, logp, dx, dlogp, SharedContext) for reg_fn in self.regularization_fns)
+                reg_states = tuple(
+                    reg_fn(x, logp, dx, dlogp, SharedContext)
+                    for reg_fn in self.regularization_fns
+                )
                 return dstate + reg_states
             else:
                 return dstate
@@ -34,7 +37,7 @@ class RegularizedODEfunc(nn.Module):
 
 def _batch_root_mean_squared(tensor):
     tensor = tensor.view(tensor.shape[0], -1)
-    return torch.mean(torch.norm(tensor, p=2, dim=1) / tensor.shape[1]**0.5)
+    return torch.mean(torch.norm(tensor, p=2, dim=1) / tensor.shape[1] ** 0.5)
 
 
 def l1_regularzation_fn(x, logp, dx, dlogp, unused_context):
@@ -70,7 +73,9 @@ def jacobian_diag_frobenius_regularization_fn(x, logp, dx, dlogp, context):
     else:
         jac = _get_minibatch_jacobian(dx, x)
         context.jac = jac
-    diagonal = jac.view(jac.shape[0], -1)[:, ::jac.shape[1]]  # assumes jac is minibatch square, ie. (N, M, M).
+    diagonal = jac.view(jac.shape[0], -1)[
+        :, :: jac.shape[1]
+    ]  # assumes jac is minibatch square, ie. (N, M, M).
     return _batch_root_mean_squared(diagonal)
 
 
@@ -81,8 +86,12 @@ def jacobian_offdiag_frobenius_regularization_fn(x, logp, dx, dlogp, context):
     else:
         jac = _get_minibatch_jacobian(dx, x)
         context.jac = jac
-    diagonal = jac.view(jac.shape[0], -1)[:, ::jac.shape[1]]  # assumes jac is minibatch square, ie. (N, M, M).
-    ss_offdiag = torch.sum(jac.view(jac.shape[0], -1)**2, dim=1) - torch.sum(diagonal**2, dim=1)
+    diagonal = jac.view(jac.shape[0], -1)[
+        :, :: jac.shape[1]
+    ]  # assumes jac is minibatch square, ie. (N, M, M).
+    ss_offdiag = torch.sum(jac.view(jac.shape[0], -1) ** 2, dim=1) - torch.sum(
+        diagonal**2, dim=1
+    )
     ms_offdiag = ss_offdiag / (diagonal.shape[1] * (diagonal.shape[1] - 1))
     return torch.mean(ms_offdiag)
 
@@ -102,8 +111,9 @@ def _get_minibatch_jacobian(y, x, create_graph=False):
     # Compute Jacobian row by row.
     jac = []
     for j in range(y.shape[1]):
-        dy_j_dx = torch.autograd.grad(y[:, j], x, torch.ones_like(y[:, j]), retain_graph=True,
-                                      create_graph=True)[0].view(x.shape[0], -1)
+        dy_j_dx = torch.autograd.grad(
+            y[:, j], x, torch.ones_like(y[:, j]), retain_graph=True, create_graph=True
+        )[0].view(x.shape[0], -1)
         jac.append(torch.unsqueeze(dy_j_dx, 1))
     jac = torch.cat(jac, 1)
     return jac

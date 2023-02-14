@@ -16,7 +16,9 @@ def inf_train_gen(data, rng=None, batch_size=200):
         return data
 
     elif data == "circles":
-        data = sklearn.datasets.make_circles(n_samples=batch_size, factor=.5, noise=0.08)[0]
+        data = sklearn.datasets.make_circles(
+            n_samples=batch_size, factor=0.5, noise=0.08
+        )[0]
         data = data.astype("float32")
         data *= 3
         return data
@@ -40,10 +42,15 @@ def inf_train_gen(data, rng=None, batch_size=200):
         circ1_x = np.cos(linspace1) * 0.25
         circ1_y = np.sin(linspace1) * 0.25
 
-        X = np.vstack([
-            np.hstack([circ4_x, circ3_x, circ2_x, circ1_x]),
-            np.hstack([circ4_y, circ3_y, circ2_y, circ1_y])
-        ]).T * 3.0
+        X = (
+            np.vstack(
+                [
+                    np.hstack([circ4_x, circ3_x, circ2_x, circ1_x]),
+                    np.hstack([circ4_y, circ3_y, circ2_y, circ1_y]),
+                ]
+            ).T
+            * 3.0
+        )
         X = util_shuffle(X, random_state=rng)
 
         # Add noise
@@ -58,10 +65,17 @@ def inf_train_gen(data, rng=None, batch_size=200):
         return data
 
     elif data == "8gaussians":
-        scale = 4.
-        centers = [(1, 0), (-1, 0), (0, 1), (0, -1), (1. / np.sqrt(2), 1. / np.sqrt(2)),
-                   (1. / np.sqrt(2), -1. / np.sqrt(2)), (-1. / np.sqrt(2),
-                                                         1. / np.sqrt(2)), (-1. / np.sqrt(2), -1. / np.sqrt(2))]
+        scale = 4.0
+        centers = [
+            (1, 0),
+            (-1, 0),
+            (0, 1),
+            (0, -1),
+            (1.0 / np.sqrt(2), 1.0 / np.sqrt(2)),
+            (1.0 / np.sqrt(2), -1.0 / np.sqrt(2)),
+            (-1.0 / np.sqrt(2), 1.0 / np.sqrt(2)),
+            (-1.0 / np.sqrt(2), -1.0 / np.sqrt(2)),
+        ]
         centers = [(scale * x, scale * y) for x, y in centers]
 
         dataset = []
@@ -84,13 +98,16 @@ def inf_train_gen(data, rng=None, batch_size=200):
         rate = 0.25
         rads = np.linspace(0, 2 * np.pi, num_classes, endpoint=False)
 
-        features = rng.randn(num_classes*num_per_class, 2) \
-            * np.array([radial_std, tangential_std])
-        features[:, 0] += 1.
+        features = rng.randn(num_classes * num_per_class, 2) * np.array(
+            [radial_std, tangential_std]
+        )
+        features[:, 0] += 1.0
         labels = np.repeat(np.arange(num_classes), num_per_class)
 
         angles = rads[labels] + rate * np.exp(features[:, 0])
-        rotations = np.stack([np.cos(angles), -np.sin(angles), np.sin(angles), np.cos(angles)])
+        rotations = np.stack(
+            [np.cos(angles), -np.sin(angles), np.sin(angles), np.cos(angles)]
+        )
         rotations = np.reshape(rotations.T, (-1, 2, 2))
 
         return 2 * rng.permutation(np.einsum("ti,tij->tj", features, rotations))

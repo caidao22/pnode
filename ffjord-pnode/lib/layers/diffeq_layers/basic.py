@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 def weights_init(m):
     classname = m.__class__.__name__
-    if classname.find('Linear') != -1 or classname.find('Conv') != -1:
+    if classname.find("Linear") != -1 or classname.find("Conv") != -1:
         nn.init.constant_(m.weight, 0)
         nn.init.normal_(m.bias, 0, 0.01)
 
@@ -28,8 +28,8 @@ class HyperLinear(nn.Module):
 
     def forward(self, t, x):
         params = self._hypernet(t.view(1, 1)).view(-1)
-        b = params[:self.dim_out].view(self.dim_out)
-        w = params[self.dim_out:].view(self.dim_out, self.dim_in)
+        b = params[: self.dim_out].view(self.dim_out)
+        w = params[self.dim_out :].view(self.dim_out, self.dim_in)
         return F.linear(x, w, b)
 
 
@@ -81,14 +81,28 @@ class ConcatSquashLinear(nn.Module):
         self._hyper_gate = nn.Linear(1, dim_out)
 
     def forward(self, t, x):
-        return self._layer(x) * torch.sigmoid(self._hyper_gate(t.view(1, 1))) \
-            + self._hyper_bias(t.view(1, 1))
+        return self._layer(x) * torch.sigmoid(
+            self._hyper_gate(t.view(1, 1))
+        ) + self._hyper_bias(t.view(1, 1))
 
 
 class HyperConv2d(nn.Module):
-    def __init__(self, dim_in, dim_out, ksize=3, stride=1, padding=0, dilation=1, groups=1, bias=True, transpose=False):
+    def __init__(
+        self,
+        dim_in,
+        dim_out,
+        ksize=3,
+        stride=1,
+        padding=0,
+        dilation=1,
+        groups=1,
+        bias=True,
+        transpose=False,
+    ):
         super(HyperConv2d, self).__init__()
-        assert dim_in % groups == 0 and dim_out % groups == 0, "dim_in and dim_out must both be divisible by groups."
+        assert (
+            dim_in % groups == 0 and dim_out % groups == 0
+        ), "dim_in and dim_out must both be divisible by groups."
         self.dim_in = dim_in
         self.dim_out = dim_out
         self.ksize = ksize
@@ -109,25 +123,53 @@ class HyperConv2d(nn.Module):
 
     def forward(self, t, x):
         params = self._hypernet(t.view(1, 1)).view(-1)
-        weight_size = int(self.dim_in * self.dim_out * self.ksize * self.ksize / self.groups)
+        weight_size = int(
+            self.dim_in * self.dim_out * self.ksize * self.ksize / self.groups
+        )
         if self.transpose:
-            weight = params[:weight_size].view(self.dim_in, self.dim_out // self.groups, self.ksize, self.ksize)
+            weight = params[:weight_size].view(
+                self.dim_in, self.dim_out // self.groups, self.ksize, self.ksize
+            )
         else:
-            weight = params[:weight_size].view(self.dim_out, self.dim_in // self.groups, self.ksize, self.ksize)
-        bias = params[:self.dim_out].view(self.dim_out) if self.bias else None
+            weight = params[:weight_size].view(
+                self.dim_out, self.dim_in // self.groups, self.ksize, self.ksize
+            )
+        bias = params[: self.dim_out].view(self.dim_out) if self.bias else None
         return self.conv_fn(
-            x, weight=weight, bias=bias, stride=self.stride, padding=self.padding, groups=self.groups,
-            dilation=self.dilation
+            x,
+            weight=weight,
+            bias=bias,
+            stride=self.stride,
+            padding=self.padding,
+            groups=self.groups,
+            dilation=self.dilation,
         )
 
 
 class IgnoreConv2d(nn.Module):
-    def __init__(self, dim_in, dim_out, ksize=3, stride=1, padding=0, dilation=1, groups=1, bias=True, transpose=False):
+    def __init__(
+        self,
+        dim_in,
+        dim_out,
+        ksize=3,
+        stride=1,
+        padding=0,
+        dilation=1,
+        groups=1,
+        bias=True,
+        transpose=False,
+    ):
         super(IgnoreConv2d, self).__init__()
         module = nn.ConvTranspose2d if transpose else nn.Conv2d
         self._layer = module(
-            dim_in, dim_out, kernel_size=ksize, stride=stride, padding=padding, dilation=dilation, groups=groups,
-            bias=bias
+            dim_in,
+            dim_out,
+            kernel_size=ksize,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            bias=bias,
         )
 
     def forward(self, t, x):
@@ -135,26 +177,62 @@ class IgnoreConv2d(nn.Module):
 
 
 class SquashConv2d(nn.Module):
-    def __init__(self, dim_in, dim_out, ksize=3, stride=1, padding=0, dilation=1, groups=1, bias=True, transpose=False):
+    def __init__(
+        self,
+        dim_in,
+        dim_out,
+        ksize=3,
+        stride=1,
+        padding=0,
+        dilation=1,
+        groups=1,
+        bias=True,
+        transpose=False,
+    ):
         super(SquashConv2d, self).__init__()
         module = nn.ConvTranspose2d if transpose else nn.Conv2d
         self._layer = module(
-            dim_in + 1, dim_out, kernel_size=ksize, stride=stride, padding=padding, dilation=dilation, groups=groups,
-            bias=bias
+            dim_in + 1,
+            dim_out,
+            kernel_size=ksize,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            bias=bias,
         )
         self._hyper = nn.Linear(1, dim_out)
 
     def forward(self, t, x):
-        return self._layer(x) * torch.sigmoid(self._hyper(t.view(1, 1))).view(1, -1, 1, 1)
+        return self._layer(x) * torch.sigmoid(self._hyper(t.view(1, 1))).view(
+            1, -1, 1, 1
+        )
 
 
 class ConcatConv2d(nn.Module):
-    def __init__(self, dim_in, dim_out, ksize=3, stride=1, padding=0, dilation=1, groups=1, bias=True, transpose=False):
+    def __init__(
+        self,
+        dim_in,
+        dim_out,
+        ksize=3,
+        stride=1,
+        padding=0,
+        dilation=1,
+        groups=1,
+        bias=True,
+        transpose=False,
+    ):
         super(ConcatConv2d, self).__init__()
         module = nn.ConvTranspose2d if transpose else nn.Conv2d
         self._layer = module(
-            dim_in + 1, dim_out, kernel_size=ksize, stride=stride, padding=padding, dilation=dilation, groups=groups,
-            bias=bias
+            dim_in + 1,
+            dim_out,
+            kernel_size=ksize,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            bias=bias,
         )
 
     def forward(self, t, x):
@@ -164,12 +242,29 @@ class ConcatConv2d(nn.Module):
 
 
 class ConcatConv2d_v2(nn.Module):
-    def __init__(self, dim_in, dim_out, ksize=3, stride=1, padding=0, dilation=1, groups=1, bias=True, transpose=False):
+    def __init__(
+        self,
+        dim_in,
+        dim_out,
+        ksize=3,
+        stride=1,
+        padding=0,
+        dilation=1,
+        groups=1,
+        bias=True,
+        transpose=False,
+    ):
         super(ConcatConv2d, self).__init__()
         module = nn.ConvTranspose2d if transpose else nn.Conv2d
         self._layer = module(
-            dim_in, dim_out, kernel_size=ksize, stride=stride, padding=padding, dilation=dilation, groups=groups,
-            bias=bias
+            dim_in,
+            dim_out,
+            kernel_size=ksize,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            bias=bias,
         )
         self._hyper_bias = nn.Linear(1, dim_out, bias=False)
 
@@ -178,28 +273,63 @@ class ConcatConv2d_v2(nn.Module):
 
 
 class ConcatSquashConv2d(nn.Module):
-    def __init__(self, dim_in, dim_out, ksize=3, stride=1, padding=0, dilation=1, groups=1, bias=True, transpose=False):
+    def __init__(
+        self,
+        dim_in,
+        dim_out,
+        ksize=3,
+        stride=1,
+        padding=0,
+        dilation=1,
+        groups=1,
+        bias=True,
+        transpose=False,
+    ):
         super(ConcatSquashConv2d, self).__init__()
         module = nn.ConvTranspose2d if transpose else nn.Conv2d
         self._layer = module(
-            dim_in, dim_out, kernel_size=ksize, stride=stride, padding=padding, dilation=dilation, groups=groups,
-            bias=bias
+            dim_in,
+            dim_out,
+            kernel_size=ksize,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            bias=bias,
         )
         self._hyper_gate = nn.Linear(1, dim_out)
         self._hyper_bias = nn.Linear(1, dim_out, bias=False)
 
     def forward(self, t, x):
-        return self._layer(x) * torch.sigmoid(self._hyper_gate(t.view(1, 1))).view(1, -1, 1, 1) \
-            + self._hyper_bias(t.view(1, 1)).view(1, -1, 1, 1)
+        return self._layer(x) * torch.sigmoid(self._hyper_gate(t.view(1, 1))).view(
+            1, -1, 1, 1
+        ) + self._hyper_bias(t.view(1, 1)).view(1, -1, 1, 1)
 
 
 class ConcatCoordConv2d(nn.Module):
-    def __init__(self, dim_in, dim_out, ksize=3, stride=1, padding=0, dilation=1, groups=1, bias=True, transpose=False):
+    def __init__(
+        self,
+        dim_in,
+        dim_out,
+        ksize=3,
+        stride=1,
+        padding=0,
+        dilation=1,
+        groups=1,
+        bias=True,
+        transpose=False,
+    ):
         super(ConcatCoordConv2d, self).__init__()
         module = nn.ConvTranspose2d if transpose else nn.Conv2d
         self._layer = module(
-            dim_in + 3, dim_out, kernel_size=ksize, stride=stride, padding=padding, dilation=dilation, groups=groups,
-            bias=bias
+            dim_in + 3,
+            dim_out,
+            kernel_size=ksize,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            bias=bias,
         )
 
     def forward(self, t, x):
@@ -224,13 +354,27 @@ class GatedLinear(nn.Module):
 
 
 class GatedConv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, groups=1):
+    def __init__(
+        self, in_channels, out_channels, kernel_size, stride=1, padding=0, groups=1
+    ):
         super(GatedConv, self).__init__()
         self.layer_f = nn.Conv2d(
-            in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=1, groups=groups
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride=stride,
+            padding=padding,
+            dilation=1,
+            groups=groups,
         )
         self.layer_g = nn.Conv2d(
-            in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=1, groups=groups
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride=stride,
+            padding=padding,
+            dilation=1,
+            groups=groups,
         )
 
     def forward(self, x):
@@ -240,15 +384,34 @@ class GatedConv(nn.Module):
 
 
 class GatedConvTranspose(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, output_padding=0, groups=1):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size,
+        stride=1,
+        padding=0,
+        output_padding=0,
+        groups=1,
+    ):
         super(GatedConvTranspose, self).__init__()
         self.layer_f = nn.ConvTranspose2d(
-            in_channels, out_channels, kernel_size, stride=stride, padding=padding, output_padding=output_padding,
-            groups=groups
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride=stride,
+            padding=padding,
+            output_padding=output_padding,
+            groups=groups,
         )
         self.layer_g = nn.ConvTranspose2d(
-            in_channels, out_channels, kernel_size, stride=stride, padding=padding, output_padding=output_padding,
-            groups=groups
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride=stride,
+            padding=padding,
+            output_padding=output_padding,
+            groups=groups,
         )
 
     def forward(self, x):
@@ -271,18 +434,39 @@ class BlendLinear(nn.Module):
 
 class BlendConv2d(nn.Module):
     def __init__(
-        self, dim_in, dim_out, ksize=3, stride=1, padding=0, dilation=1, groups=1, bias=True, transpose=False,
+        self,
+        dim_in,
+        dim_out,
+        ksize=3,
+        stride=1,
+        padding=0,
+        dilation=1,
+        groups=1,
+        bias=True,
+        transpose=False,
         **unused_kwargs
     ):
         super(BlendConv2d, self).__init__()
         module = nn.ConvTranspose2d if transpose else nn.Conv2d
         self._layer0 = module(
-            dim_in, dim_out, kernel_size=ksize, stride=stride, padding=padding, dilation=dilation, groups=groups,
-            bias=bias
+            dim_in,
+            dim_out,
+            kernel_size=ksize,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            bias=bias,
         )
         self._layer1 = module(
-            dim_in, dim_out, kernel_size=ksize, stride=stride, padding=padding, dilation=dilation, groups=groups,
-            bias=bias
+            dim_in,
+            dim_out,
+            kernel_size=ksize,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            bias=bias,
         )
 
     def forward(self, t, x):

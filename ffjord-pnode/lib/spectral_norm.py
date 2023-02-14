@@ -9,7 +9,7 @@ POWER_ITERATION_FN = "spectral_norm_power_iteration"
 
 
 class SpectralNorm(object):
-    def __init__(self, name='weight', dim=0, eps=1e-12):
+    def __init__(self, name="weight", dim=0, eps=1e-12):
         self.name = name
         self.dim = dim
         self.eps = eps
@@ -17,17 +17,19 @@ class SpectralNorm(object):
     def compute_weight(self, module, n_power_iterations):
         if n_power_iterations < 0:
             raise ValueError(
-                'Expected n_power_iterations to be non-negative, but '
-                'got n_power_iterations={}'.format(n_power_iterations)
+                "Expected n_power_iterations to be non-negative, but "
+                "got n_power_iterations={}".format(n_power_iterations)
             )
 
-        weight = getattr(module, self.name + '_orig')
-        u = getattr(module, self.name + '_u')
-        v = getattr(module, self.name + '_v')
+        weight = getattr(module, self.name + "_orig")
+        u = getattr(module, self.name + "_u")
+        v = getattr(module, self.name + "_v")
         weight_mat = weight
         if self.dim != 0:
             # permute dim to front
-            weight_mat = weight_mat.permute(self.dim, * [d for d in range(weight_mat.dim()) if d != self.dim])
+            weight_mat = weight_mat.permute(
+                self.dim, *[d for d in range(weight_mat.dim()) if d != self.dim]
+            )
         height = weight_mat.size(0)
         weight_mat = weight_mat.reshape(height, -1)
         with torch.no_grad():
@@ -37,8 +39,8 @@ class SpectralNorm(object):
                 # This power iteration produces approximations of `u` and `v`.
                 v = normalize(torch.matmul(weight_mat.t(), u), dim=0, eps=self.eps)
                 u = normalize(torch.matmul(weight_mat, v), dim=0, eps=self.eps)
-        setattr(module, self.name + '_u', u)
-        setattr(module, self.name + '_v', v)
+        setattr(module, self.name + "_u", u)
+        setattr(module, self.name + "_v", v)
 
         sigma = torch.dot(u, torch.matmul(weight_mat, v))
         weight = weight / sigma
@@ -47,8 +49,8 @@ class SpectralNorm(object):
     def remove(self, module):
         weight = getattr(module, self.name)
         delattr(module, self.name)
-        delattr(module, self.name + '_u')
-        delattr(module, self.name + '_orig')
+        delattr(module, self.name + "_u")
+        delattr(module, self.name + "_orig")
         module.register_parameter(self.name, torch.nn.Parameter(weight))
 
     def get_update_method(self, module):
@@ -63,8 +65,12 @@ class SpectralNorm(object):
 
         # requires_grad might be either True or False during inference.
         if not module.training:
-            r_g = getattr(module, self.name + '_orig').requires_grad
-            setattr(module, self.name, getattr(module, self.name).detach().requires_grad_(r_g))
+            r_g = getattr(module, self.name + "_orig").requires_grad
+            setattr(
+                module,
+                self.name,
+                getattr(module, self.name).detach().requires_grad_(r_g),
+            )
 
     @staticmethod
     def apply(module, name, dim, eps):
@@ -73,7 +79,11 @@ class SpectralNorm(object):
         height = weight.size(dim)
 
         u = normalize(weight.new_empty(height).normal_(0, 1), dim=0, eps=fn.eps)
-        v = normalize(weight.new_empty(int(weight.numel() / height)).normal_(0, 1), dim=0, eps=fn.eps)
+        v = normalize(
+            weight.new_empty(int(weight.numel() / height)).normal_(0, 1),
+            dim=0,
+            eps=fn.eps,
+        )
         delattr(module, fn.name)
         module.register_parameter(fn.name + "_orig", weight)
         # We still need to assign weight back as fn.name because all sorts of
@@ -86,13 +96,17 @@ class SpectralNorm(object):
         module.register_buffer(fn.name + "_u", u)
         module.register_buffer(fn.name + "_v", v)
 
-        setattr(module, POWER_ITERATION_FN, types.MethodType(fn.get_update_method(module), module))
+        setattr(
+            module,
+            POWER_ITERATION_FN,
+            types.MethodType(fn.get_update_method(module), module),
+        )
 
         module.register_forward_pre_hook(fn)
         return fn
 
 
-def inplace_spectral_norm(module, name='weight', dim=None, eps=1e-12):
+def inplace_spectral_norm(module, name="weight", dim=None, eps=1e-12):
     r"""Applies spectral normalization to a parameter in the given module.
 
     .. math::
@@ -134,7 +148,14 @@ def inplace_spectral_norm(module, name='weight', dim=None, eps=1e-12):
 
     """
     if dim is None:
-        if isinstance(module, (torch.nn.ConvTranspose1d, torch.nn.ConvTranspose2d, torch.nn.ConvTranspose3d)):
+        if isinstance(
+            module,
+            (
+                torch.nn.ConvTranspose1d,
+                torch.nn.ConvTranspose2d,
+                torch.nn.ConvTranspose3d,
+            ),
+        ):
             dim = 1
         else:
             dim = 0
@@ -142,7 +163,7 @@ def inplace_spectral_norm(module, name='weight', dim=None, eps=1e-12):
     return module
 
 
-def remove_spectral_norm(module, name='weight'):
+def remove_spectral_norm(module, name="weight"):
     r"""Removes the spectral normalization reparameterization from a module.
 
     Args:
