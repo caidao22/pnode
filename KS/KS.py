@@ -14,7 +14,6 @@ import h5py
 from tensorboardX import SummaryWriter
 import pickle
 import torch
-import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import sys
@@ -28,6 +27,12 @@ matplotlib.use("Agg")
 sys.path.append("../")
 parser = argparse.ArgumentParser("KS")
 parser.add_argument(
+    "--pnode_model",
+    type=str,
+    choices=["mlp", "snode", "imex"],
+    default="mlp",
+)
+parser.add_argument(
     "--pnode_method",
     type=str,
     choices=["euler", "rk2", "fixed_bosh3", "rk4", "fixed_dopri5", "beuler", "cn"],
@@ -38,7 +43,7 @@ parser.add_argument("--data_size", type=int, default=40)
 parser.add_argument("--steps_per_data_point", type=int, default=1)
 parser.add_argument("--batch_size", type=int, default=40)
 parser.add_argument("--niters", type=int, default=10000)
-parser.add_argument("--test_freq", type=int, default=100)
+parser.add_argument("--test_freq", type=int, default=10)
 parser.add_argument("--viz", action="store_true")
 parser.add_argument("--gpu", type=int, default=0)
 parser.add_argument("--adjoint", action="store_true")
@@ -79,7 +84,7 @@ else:
     step_size = 0.25
 
 
-def get_data():
+def get_data(stride=1):
     train_data_path = "/Users/hongzhang/Projects/RNN-RC-Chaos/Data/KuramotoSivashinskyGP512/Data/training_data_N100000.pickle"
     test_data_path = "/Users/hongzhang/Projects/RNN-RC-Chaos/Data/KuramotoSivashinskyGP512/Data/testing_data_N100000.pickle"
 
@@ -88,24 +93,26 @@ def get_data():
         data = pickle.load(file)
         input_sequence = data["train_input_sequence"]
         N_train, dim = np.shape(input_sequence)
+        N_train = 1000
         dt = data["dt"]
-        initial_state_train = torch.from_numpy(input_sequence[0,:16])
-        u_train = input_sequence[:,:16]
-        t_train = dt * np.linspace(0, N_train-1, N_train)
+        initial_state_train = torch.from_numpy(input_sequence[0, stride//2::stride])
+        u_train = input_sequence[:N_train, stride//2::stride]
+        t_train = dt * np.linspace(0, N_train - 1, N_train)
         del data
     with open(test_data_path, "rb") as file:
         data = pickle.load(file)
         input_sequence = data["test_input_sequence"]
         N_test, dim = np.shape(input_sequence)
+        N_test = 1000
         dt = data["dt"]
-        initial_state_test = torch.from_numpy(input_sequence[0,:16])
-        u_test = input_sequence[:,:16]
-        t_test = dt * np.linspace(0, N_test-1, N_test)
+        initial_state_test = torch.from_numpy(input_sequence[0, stride//2::stride])
+        u_test = input_sequence[:N_test, stride//2::stride]
+        t_test = dt * np.linspace(0, N_test - 1, N_test)
         del data
     trainloader = DataLoader(
         DistFuncDataset(u_train, t_train),
         batch_size=args.batch_size,
-        shuffle=True,
+        shuffle=False,
         pin_memory=True,
         num_workers=1,
         drop_last=True,
@@ -113,11 +120,11 @@ def get_data():
     testloader = DataLoader(
         DistFuncDataset(u_train, t_train),
         batch_size=args.batch_size,
-        shuffle=True,
+        shuffle=False,
         pin_memory=True,
         num_workers=1,
         drop_last=True,
-        )
+    )
     return initial_state_train, initial_state_test, trainloader, testloader
 
 
@@ -127,13 +134,13 @@ class DistFuncDataset(Dataset):
         self.t = torch.from_numpy(t_array).double()
 
     def __len__(self):
-        return len(self.u)-1
+        return len(self.u) - 1
 
     def __getitem__(self, index):
         a = self.u[index]
-        b = self.u[index+1]
+        b = self.u[index + 1]
         c = self.t[index]
-        d = self.t[index+1]
+        d = self.t[index + 1]
         return index, a, b, c, d
 
 
@@ -186,7 +193,8 @@ def split_and_preprocess(
     return trainloader, testloader
 
 
-initial_state_train, initial_state_test, trainloader, testloader = get_data()
+initial_state_train, initial_state_test, trainloader, testloader = get_data(stride=8) # reduce doe from 512 to 64
+
 
 def makedirs(dirname):
     if not os.path.exists(dirname):
@@ -209,7 +217,7 @@ marker_style2 = {}
 lw = 2.5
 
 
-def visualize(t, true_y, pred_y, odefunc, itr, name):
+def visualize(t, true_y, pred_u, odefunc, itr, name):
     if args.viz:
         ax1.cla()
         ax1.set_xlabel("t")
@@ -225,7 +233,7 @@ def visualize(t, true_y, pred_y, odefunc, itr, name):
         )
         ax1.plot(
             t.cpu().numpy(),
-            pred_y.cpu().numpy()[:, 0],
+            pred_u.cpu().numpy()[:, 0],
             color="tab:blue",
             linestyle="dashed",
             linewidth=lw,
@@ -249,7 +257,7 @@ def visualize(t, true_y, pred_y, odefunc, itr, name):
         )
         ax2.plot(
             t.cpu().numpy(),
-            pred_y.cpu().numpy()[:, 1],
+            pred_u.cpu().numpy()[:, 1],
             color="tab:blue",
             linestyle="dashed",
             linewidth=lw,
@@ -270,7 +278,7 @@ def visualize(t, true_y, pred_y, odefunc, itr, name):
         )
         ax3.plot(
             t.cpu().numpy(),
-            pred_y.cpu().numpy()[:, 2],
+            pred_u.cpu().numpy()[:, 2],
             color="tab:blue",
             linestyle="dashed",
             linewidth=lw,
@@ -282,54 +290,6 @@ def visualize(t, true_y, pred_y, odefunc, itr, name):
         plt.savefig(os.path.join(args.train_dir, "png") + "/{:03d}".format(itr) + name)
         plt.draw()
         plt.pause(0.001)
-
-
-class ODEFunc(nn.Module):
-    def __init__(self):
-        super(ODEFunc, self).__init__()
-        self.input_size = 16
-        self.hidden = 10
-        if args.double_prec:
-            self.net = nn.Sequential(
-                nn.Linear(self.input_size, self.hidden, bias=False).double(),
-                nn.GELU().double(),
-                nn.Linear(self.hidden, self.hidden, bias=False).double(),
-                nn.GELU().double(),
-                nn.Linear(self.hidden, self.hidden, bias=False).double(),
-                nn.GELU().double(),
-                nn.Linear(self.hidden, self.hidden, bias=False).double(),
-                nn.GELU().double(),
-                nn.Linear(self.hidden, self.hidden, bias=False).double(),
-                nn.GELU().double(),
-                nn.Linear(self.hidden, self.hidden, bias=False).double(),
-                nn.GELU().double(),
-                nn.Linear(self.hidden, self.input_size, bias=False).double(),
-            ).to(device)
-        else:
-            self.net = nn.Sequential(
-                nn.Linear(self.input_size, self.hidden, bias=False),
-                nn.GELU(),
-                nn.Linear(self.hidden, self.hidden, bias=False),
-                nn.GELU(),
-                nn.Linear(self.hidden, self.hidden, bias=False),
-                nn.GELU(),
-                nn.Linear(self.hidden, self.hidden, bias=False),
-                nn.GELU(),
-                nn.Linear(self.hidden, self.hidden, bias=False),
-                nn.GELU(),
-                nn.Linear(self.hidden, self.hidden, bias=False),
-                nn.GELU(),
-                nn.Linear(self.hidden, self.input_size, bias=False),
-            ).to(device)
-        for m in self.net.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, mean=0.0, std=0.5)
-        self.nfe = 0
-
-    def forward(self, t, y):
-        self.nfe += 1
-        # return self.net(y**3)
-        return self.net(y)
 
 
 class RunningAverageMeter(object):
@@ -365,26 +325,65 @@ if __name__ == "__main__":
         os.mkdir(args.train_dir)
     writer = SummaryWriter(args.train_dir)
 
-    func_PNODE = ODEFunc().to(device)
     ode_PNODE = petsc_adjoint.ODEPetsc()
-    ode_PNODE.setupTS(
-        torch.zeros(args.batch_size, *initial_state_train.shape, dtype=torch.float64),
-        func_PNODE,
-        step_size=step_size,
-        method=args.pnode_method,
-        enable_adjoint=True,
-        implicit_form=args.implicit_form,
-    )
-    optimizer_PNODE = optim.AdamW(func_PNODE.parameters(), lr=5e-3)
-    ode_test_PNODE = petsc_adjoint.ODEPetsc()
-    ode_test_PNODE.setupTS(
-        torch.zeros(args.batch_size, *initial_state_train.shape, dtype=torch.float64),
-        func_PNODE,
-        step_size=step_size,
-        method=args.pnode_method,
-        enable_adjoint=False,
-        implicit_form=args.implicit_form,
-    )
+    if args.pnode_model == "mlp":
+        from models.mlp import ODEFunc
+    if args.pnode_model == "snode":
+        from models.snode import ODEFunc
+    if args.pnode_model == "imex":
+        from models.imex import ODEFuncIM, ODEFuncEX
+        if args.double_prec:
+            funcIM_PNODE = ODEFuncIM().double().to(device)
+            funcEX_PNODE = ODEFuncEX().double().to(device)
+        else:
+            funcIM_PNODE = ODEFuncIM().to(device)
+            funcEX_PNODE = ODEFuncEX().to(device)
+        ode_PNODE.setupTS(
+            torch.zeros(args.batch_size, *initial_state_train.shape, dtype=torch.float64),
+            funcIM_PNODE,
+            step_size=step_size,
+            method="imex",
+            enable_adjoint=True,
+            implicit_form=args.implicit_form,
+            imex_form=True,
+            func2=funcEX_PNODE,
+        )
+        params = list(funcIM_PNODE.parameters()) + list(funcEX_PNODE.parameters())
+        optimizer_PNODE = optim.AdamW(params, lr=5e-3)
+        ode_test_PNODE = petsc_adjoint.ODEPetsc()
+        ode_test_PNODE.setupTS(
+            torch.zeros(args.batch_size, *initial_state_train.shape, dtype=torch.float64),
+            funcIM_PNODE,
+            step_size=step_size,
+            method="imex",
+            enable_adjoint=False,
+            implicit_form=args.implicit_form,
+            imex_form=True,
+            func2=funcEX_PNODE,
+        )
+    else:
+        if args.double_prec:
+            func_PNODE = ODEFunc().double().to(device)
+        else:
+            func_PNODE = ODEFunc().to(device)
+        ode_PNODE.setupTS(
+            torch.zeros(args.batch_size, *initial_state_train.shape, dtype=torch.float64),
+            func_PNODE,
+            step_size=step_size,
+            method=args.pnode_method,
+            enable_adjoint=True,
+            implicit_form=args.implicit_form,
+        )
+        optimizer_PNODE = optim.AdamW(func_PNODE.parameters(), lr=5e-3)
+        ode_test_PNODE = petsc_adjoint.ODEPetsc()
+        ode_test_PNODE.setupTS(
+            torch.zeros(args.batch_size, *initial_state_train.shape, dtype=torch.float64),
+            func_PNODE,
+            step_size=step_size,
+            method=args.pnode_method,
+            enable_adjoint=False,
+            implicit_form=args.implicit_form,
+        )
 
     end = time.time()
     time_meter = RunningAverageMeter(0.97)
@@ -411,20 +410,22 @@ if __name__ == "__main__":
 
     start_PNODE = time.time()
     for itr in range(curr_iter, args.niters + 1):
-        for inner, (indices, u_data, u_target, t_data, t_target) in enumerate(trainloader):
+        for inner, (indices, u_data, u_target, t_data, t_target) in enumerate(
+            trainloader
+        ):
             optimizer_PNODE.zero_grad()
             pred_u_PNODE = ode_PNODE.odeint_adjoint(u_data, torch.tensor([0.25]))
-            nfe_f_PNODE = func_PNODE.nfe
-            func_PNODE.nfe = 0
             loss_PNODE = torch.mean(torch.abs(pred_u_PNODE - u_target))
             loss_std_PNODE = torch.std(torch.abs(pred_u_PNODE - u_target))
             loss_PNODE.backward()
             optimizer_PNODE.step()
-            nfe_b_PNODE = func_PNODE.nfe
-            func_PNODE.nfe = 0
 
             total_norm = 0
-            for p in func_PNODE.parameters():
+            if args.pnode_model == "imex":
+                params = list(funcIM_PNODE.parameters()) + list(funcEX_PNODE.parameters())
+            else:
+                params = func_PNODE.parameters()
+            for p in params:
                 param_norm = p.grad.detach().data.norm(2)
                 total_norm += param_norm.item() ** 2
             total_norm = total_norm**0.5
@@ -432,11 +433,15 @@ if __name__ == "__main__":
             writer.add_scalar("Train/Gradient", total_norm, itr * 50000)
 
         if itr % args.test_freq == 0:
+            end_PNODE = time.time()
             with torch.no_grad():
-                end_PNODE = time.time()
-                for inner, (indices, u_target, t_target) in enumerate(testloader):
+                ntests = 0
+                for inner, (indices, u_data, u_target, t_data, t_target) in enumerate(
+                    testloader
+                ):
+                    ntests += 1
                     pred_u_PNODE = ode_test_PNODE.odeint_adjoint(
-                        initial_state_test, t_target
+                        u_data, torch.tensor([0.25])
                     )
                     loss_PNODE_array = (
                         loss_PNODE_array
@@ -446,25 +451,38 @@ if __name__ == "__main__":
                     loss_std_PNODE_array = (
                         loss_std_PNODE_array
                         + [loss_std_PNODE.item()]
-                        + [torch.std(torch.abs(pred_y_PNODE - test_y)).cpu()]
+                        + [torch.std(torch.abs(pred_u_PNODE - u_target)).cpu()]
                     )
-                    print(
-                        "PNODE: Iter {:05d} | Time {:.6f} | Total Loss {:.6f} | NFE-F {:04d} | NFE-B {:04d}".format(
-                            itr,
-                            end_PNODE - start_PNODE,
-                            loss_PNODE_array[-1],
-                            nfe_f_PNODE,
-                            nfe_b_PNODE,
+                avg_test_loss = sum(loss_PNODE_array[-ntests:])/ntests
+                print(
+                    "PNODE: Iter {:05d} | Train Time {:.6f} | Avg Test Loss {:.6f}".format(
+                        itr,
+                        end_PNODE - start_PNODE,
+                        avg_test_loss,
                         )
-                    )
-                    if loss_PNODE_array[-1] < best_loss:
-                        best_loss = loss_PNODE_array[-1]
-                        new_best = True
+                )
+                if avg_test_loss < best_loss:
+                    best_loss = avg_test_loss
+                    new_best = True
+                else:
+                    new_best = False
+                if new_best:
+                    # visualize(test_t, test_y, pred_u_PNODE, func_PNODE, ii, "PNODE")
+                    ckpt_path = os.path.join(args.train_dir, "best.pth")
+                    if args.pnode_model == "imex":
+                        torch.save(
+                            {
+                                "iter": itr,
+                                "ii": ii,
+                                "best_loss": best_loss,
+                                "funcIM_state_dict": funcIM_PNODE.state_dict(),
+                                "funcEX_state_dict": funcEX_PNODE.state_dict(),
+                                "optimizer_state_dict": optimizer_PNODE.state_dict(),
+                                "normalize_option": args.normalize,
+                            },
+                            ckpt_path,
+                        )
                     else:
-                        new_best = False
-                    if new_best:
-                        # visualize(test_t, test_y, pred_y_PNODE, func_PNODE, ii, "PNODE")
-                        ckpt_path = os.path.join(args.train_dir, "best.pth")
                         torch.save(
                             {
                                 "iter": itr,
@@ -476,10 +494,10 @@ if __name__ == "__main__":
                             },
                             ckpt_path,
                         )
-                        print(
-                            "Saved new best results (loss={}) at Iter {}".format(
-                                best_loss, itr
-                            )
+                    print(
+                        "Saved new best results (loss={}) at Iter {}".format(
+                            best_loss, itr
                         )
-                    ii += 1
-                    start_PNODE = time.time()
+                    )
+                ii += 1
+                start_PNODE = time.time()
