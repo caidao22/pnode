@@ -4,16 +4,12 @@ import datasets
 
 
 class POWER:
-
     class Data:
-
         def __init__(self, data):
-
             self.x = data.astype(np.float32)
             self.N = self.x.shape[0]
 
     def __init__(self):
-
         trn, val, tst = load_data_normalised()
 
         self.trn = self.Data(trn)
@@ -24,11 +20,10 @@ class POWER:
 
 
 def load_data():
-    return np.load(datasets.root + 'power/data.npy')
+    return np.load(datasets.root + "power/data.npy")
 
 
 def load_data_split_with_noise():
-
     rng = np.random.RandomState(42)
 
     data = load_data()
@@ -62,7 +57,6 @@ def load_data_split_with_noise():
 
 
 def load_data_normalised():
-
     data_train, data_validate, data_test = load_data_split_with_noise()
     data = np.vstack((data_train, data_validate))
     mu = data.mean(axis=0)

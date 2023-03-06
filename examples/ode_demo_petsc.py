@@ -29,19 +29,21 @@ import sys
 #       Crank-Nicolson: -ts_type cn
 #   - By default, disk is used for checkpointing. To use DRAM, add -ts_trajectory_type memory. -ts_trajectory_solution_only 0 can be used to further reduce recomputation at the cost of more memory usage
 
-parser = argparse.ArgumentParser('ODE demo')
-parser.add_argument('--method', type=str, choices=['dopri5', 'adams', 'dopri5_fixed'], default='dopri5')
-parser.add_argument('--data_size', type=int, default=1001)
-parser.add_argument('--batch_time', type=int, default=10)
-parser.add_argument('--batch_size', type=int, default=20)
-parser.add_argument('--niters', type=int, default=2000)
-parser.add_argument('--test_freq', type=int, default=20)
-parser.add_argument('--viz', action='store_true')
-parser.add_argument('--gpu', type=int, default=1)
-parser.add_argument('--step_size', type=float, default=0.025)
-parser.add_argument('--implicit_form', action='store_true')
-parser.add_argument('--double_prec', action='store_true')
-parser.add_argument('--use_dlpack', action='store_true')
+parser = argparse.ArgumentParser("ODE demo")
+parser.add_argument(
+    "--method", type=str, choices=["dopri5", "adams", "dopri5_fixed"], default="dopri5"
+)
+parser.add_argument("--data_size", type=int, default=1001)
+parser.add_argument("--batch_time", type=int, default=10)
+parser.add_argument("--batch_size", type=int, default=20)
+parser.add_argument("--niters", type=int, default=2000)
+parser.add_argument("--test_freq", type=int, default=20)
+parser.add_argument("--viz", action="store_true")
+parser.add_argument("--gpu", type=int, default=1)
+parser.add_argument("--step_size", type=float, default=0.025)
+parser.add_argument("--implicit_form", action="store_true")
+parser.add_argument("--double_prec", action="store_true")
+parser.add_argument("--use_dlpack", action="store_true")
 args, unknown = parser.parse_known_args()
 
 gpu = args.gpu
@@ -55,101 +57,139 @@ implicit_form = args.implicit_form
 double_prec = args.double_prec
 use_dlpack = args.use_dlpack
 
-petsc4py_path = os.path.join(os.environ['PETSC_DIR'],os.environ['PETSC_ARCH'],'lib')
+petsc4py_path = os.path.join(os.environ["PETSC_DIR"], os.environ["PETSC_ARCH"], "lib")
 sys.path.append(petsc4py_path)
 import petsc4py
+
 sys.argv = [sys.argv[0]] + unknown
 petsc4py.init(sys.argv)
 from petsc4py import PETSc
+
 # OptDB = PETSc.Options()
 # print("first init: ",OptDB.getAll())
 
-sys.path.append("../") # for quick debugging
+sys.path.append("../")  # for quick debugging
 from pnode import petsc_adjoint
 
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 # device = torch.device('cpu')
 if double_prec:
-    print('Using float64')
-    true_y0 = torch.tensor([[2., 0.]], dtype=torch.float64).to(device)
-    t = torch.linspace(0., 25., data_size, dtype=torch.float64)
+    print("Using float64")
+    true_y0 = torch.tensor([[2.0, 0.0]], dtype=torch.float64).to(device)
+    t = torch.linspace(0.0, 25.0, data_size, dtype=torch.float64)
     true_A = torch.tensor([[-0.1, 2.0], [-2.0, -0.1]], dtype=torch.float64).to(device)
 else:
-    print('Using float32 (PyTorch default)')
-    true_y0 = torch.tensor([[2., 0.]] ).to(device)
-    t = torch.linspace(0., 25., data_size)
+    print("Using float32 (PyTorch default)")
+    true_y0 = torch.tensor([[2.0, 0.0]]).to(device)
+    t = torch.linspace(0.0, 25.0, data_size)
     true_A = torch.tensor([[-0.1, 2.0], [-2.0, -0.1]]).to(device)
+
 
 class Lambda(nn.Module):
     def forward(self, t, y):
         return torch.mm(y**3, true_A)
 
+
 # data_size-1 should not exceed the number of time steps
-if step_size > 25.0/(data_size-1) :
-    print('Error: step_size={} too large (number of steps should not be smaller than data_size={} too large'.format(step_size,data_size))
-    #sys.exit()
+if step_size > 25.0 / (data_size - 1):
+    print(
+        "Error: step_size={} too large (number of steps should not be smaller than data_size={} too large".format(
+            step_size, data_size
+        )
+    )
+    # sys.exit()
 
 ode0 = petsc_adjoint.ODEPetsc()
-ode0.setupTS(true_y0, Lambda(), step_size=step_size, enable_adjoint=False, implicit_form=implicit_form, use_dlpack=use_dlpack)
+ode0.setupTS(
+    true_y0,
+    Lambda(),
+    step_size=step_size,
+    enable_adjoint=False,
+    implicit_form=implicit_form,
+    use_dlpack=use_dlpack,
+)
 with torch.no_grad():
     true_y = ode0.odeint(true_y0, t)
     # print(true_y)
     # sys.exit()
 
+
 def get_batch():
-    s = torch.from_numpy(np.random.choice(np.arange(data_size - batch_time, dtype=np.int64), batch_size, replace=False))
+    s = torch.from_numpy(
+        np.random.choice(
+            np.arange(data_size - batch_time, dtype=np.int64), batch_size, replace=False
+        )
+    )
     batch_y0 = true_y[s]  # (M, D)
     batch_t = t[:batch_time]  # (T)
-    batch_y = torch.stack([true_y[s + i] for i in range(batch_time)], dim=0)  # (T, M, D)
+    batch_y = torch.stack(
+        [true_y[s + i] for i in range(batch_time)], dim=0
+    )  # (T, M, D)
     return batch_y0, batch_t, batch_y
+
 
 def makedirs(dirname):
     if not os.path.exists(dirname):
         os.makedirs(dirname)
 
+
 if args.viz:
-    makedirs('png')
+    makedirs("png")
     import matplotlib.pyplot as plt
-    fig = plt.figure(figsize=(12, 4), facecolor='white')
+
+    fig = plt.figure(figsize=(12, 4), facecolor="white")
     ax_traj = fig.add_subplot(131, frameon=False)
     ax_phase = fig.add_subplot(132, frameon=False)
     ax_vecfield = fig.add_subplot(133, frameon=False)
     plt.show(block=False)
 
+
 def visualize(true_y, pred_y, odefunc, itr):
-
     if args.viz:
-
         ax_traj.cla()
-        ax_traj.set_title('Trajectories')
-        ax_traj.set_xlabel('t')
-        ax_traj.set_ylabel('x,y')
-        ax_traj.plot(t.numpy(), true_y.numpy()[:, 0, 0], t.numpy(), true_y.numpy()[:, 0, 1], 'g-')
-        ax_traj.plot(t.numpy(), pred_y.numpy()[:, 0, 0], '--', t.numpy(), pred_y.numpy()[:, 0, 1], 'b--')
+        ax_traj.set_title("Trajectories")
+        ax_traj.set_xlabel("t")
+        ax_traj.set_ylabel("x,y")
+        ax_traj.plot(
+            t.numpy(), true_y.numpy()[:, 0, 0], t.numpy(), true_y.numpy()[:, 0, 1], "g-"
+        )
+        ax_traj.plot(
+            t.numpy(),
+            pred_y.numpy()[:, 0, 0],
+            "--",
+            t.numpy(),
+            pred_y.numpy()[:, 0, 1],
+            "b--",
+        )
         ax_traj.set_xlim(t.min(), t.max())
         ax_traj.set_ylim(-2, 2)
         ax_traj.legend()
 
         ax_phase.cla()
-        ax_phase.set_title('Phase Portrait')
-        ax_phase.set_xlabel('x')
-        ax_phase.set_ylabel('y')
-        ax_phase.plot(true_y.numpy()[:, 0, 0], true_y.numpy()[:, 0, 1], 'g-')
-        ax_phase.plot(pred_y.numpy()[:, 0, 0], pred_y.numpy()[:, 0, 1], 'b--')
+        ax_phase.set_title("Phase Portrait")
+        ax_phase.set_xlabel("x")
+        ax_phase.set_ylabel("y")
+        ax_phase.plot(true_y.numpy()[:, 0, 0], true_y.numpy()[:, 0, 1], "g-")
+        ax_phase.plot(pred_y.numpy()[:, 0, 0], pred_y.numpy()[:, 0, 1], "b--")
         ax_phase.set_xlim(-2, 2)
         ax_phase.set_ylim(-2, 2)
 
         ax_vecfield.cla()
-        ax_vecfield.set_title('Learned Vector Field')
-        ax_vecfield.set_xlabel('x')
-        ax_vecfield.set_ylabel('y')
+        ax_vecfield.set_title("Learned Vector Field")
+        ax_vecfield.set_xlabel("x")
+        ax_vecfield.set_ylabel("y")
 
         y, x = np.mgrid[-2:2:21j, -2:2:21j]
-        dydt = odefunc(0, torch.Tensor(np.stack([x, y], -1).reshape(21 * 21, 2))).cpu().detach().numpy()
-        mag = np.sqrt(dydt[:, 0]**2 + dydt[:, 1]**2).reshape(-1, 1)
-        dydt = (dydt / mag)
+        dydt = (
+            odefunc(0, torch.Tensor(np.stack([x, y], -1).reshape(21 * 21, 2)))
+            .cpu()
+            .detach()
+            .numpy()
+        )
+        mag = np.sqrt(dydt[:, 0] ** 2 + dydt[:, 1] ** 2).reshape(-1, 1)
+        dydt = dydt / mag
         dydt = dydt.reshape(21, 21, 2)
 
         ax_vecfield.streamplot(x, y, dydt[:, :, 0], dydt[:, :, 1], color="black")
@@ -157,12 +197,12 @@ def visualize(true_y, pred_y, odefunc, itr):
         ax_vecfield.set_ylim(-2, 2)
 
         fig.tight_layout()
-        plt.savefig('png/{:03d}'.format(itr))
+        plt.savefig("png/{:03d}".format(itr))
         plt.draw()
         plt.pause(0.001)
 
-class ODEFunc(nn.Module):
 
+class ODEFunc(nn.Module):
     def __init__(self):
         super(ODEFunc, self).__init__()
 
@@ -207,10 +247,9 @@ class RunningAverageMeter(object):
         self.val = val
 
 
-if __name__ == '__main__':
-
+if __name__ == "__main__":
     ii = 0
-    batch_y0,_,_ = get_batch()
+    batch_y0, _, _ = get_batch()
     func = ODEFunc()
     optimizer = optim.RMSprop(func.parameters(), lr=1e-3)
     end = time.time()
@@ -219,7 +258,13 @@ if __name__ == '__main__':
     loss_meter = RunningAverageMeter(0.97)
 
     ode = petsc_adjoint.ODEPetsc()
-    ode.setupTS(batch_y0, func, step_size=step_size, implicit_form=implicit_form, use_dlpack=use_dlpack)
+    ode.setupTS(
+        batch_y0,
+        func,
+        step_size=step_size,
+        implicit_form=implicit_form,
+        use_dlpack=use_dlpack,
+    )
     for itr in range(1, niters + 1):
         optimizer.zero_grad()
         batch_y0, batch_t, batch_y = get_batch()
@@ -233,10 +278,17 @@ if __name__ == '__main__':
 
         if itr % test_freq == 0:
             with torch.no_grad():
-                ode0.setupTS(true_y0, func, step_size=step_size, enable_adjoint=False, implicit_form=implicit_form, use_dlpack=use_dlpack)
+                ode0.setupTS(
+                    true_y0,
+                    func,
+                    step_size=step_size,
+                    enable_adjoint=False,
+                    implicit_form=implicit_form,
+                    use_dlpack=use_dlpack,
+                )
                 pred_y = ode0.odeint_adjoint(true_y0, t)
                 loss = torch.mean(torch.abs(pred_y - true_y))
-                print('Iter {:04d} | Total Loss {:.6f}'.format(itr, loss.item()))
+                print("Iter {:04d} | Total Loss {:.6f}".format(itr, loss.item()))
                 visualize(true_y, pred_y, func, ii)
                 ii += 1
 

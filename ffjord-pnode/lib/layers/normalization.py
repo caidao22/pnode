@@ -2,26 +2,26 @@ import torch
 import torch.nn as nn
 from torch.nn import Parameter
 
-__all__ = ['MovingBatchNorm1d', 'MovingBatchNorm2d']
+__all__ = ["MovingBatchNorm1d", "MovingBatchNorm2d"]
 
 
 class MovingBatchNormNd(nn.Module):
-    def __init__(self, num_features, eps=1e-4, decay=0.1, bn_lag=0., affine=True):
+    def __init__(self, num_features, eps=1e-4, decay=0.1, bn_lag=0.0, affine=True):
         super(MovingBatchNormNd, self).__init__()
         self.num_features = num_features
         self.affine = affine
         self.eps = eps
         self.decay = decay
         self.bn_lag = bn_lag
-        self.register_buffer('step', torch.zeros(1))
+        self.register_buffer("step", torch.zeros(1))
         if self.affine:
             self.weight = Parameter(torch.Tensor(num_features))
             self.bias = Parameter(torch.Tensor(num_features))
         else:
-            self.register_parameter('weight', None)
-            self.register_parameter('bias', None)
-        self.register_buffer('running_mean', torch.zeros(num_features))
-        self.register_buffer('running_var', torch.ones(num_features))
+            self.register_parameter("weight", None)
+            self.register_parameter("bias", None)
+        self.register_buffer("running_mean", torch.zeros(num_features))
+        self.register_buffer("running_var", torch.ones(num_features))
         self.reset_parameters()
 
     @property
@@ -54,10 +54,14 @@ class MovingBatchNormNd(nn.Module):
 
             # moving average
             if self.bn_lag > 0:
-                used_mean = batch_mean - (1 - self.bn_lag) * (batch_mean - used_mean.detach())
-                used_mean /= (1. - self.bn_lag**(self.step[0] + 1))
-                used_var = batch_var - (1 - self.bn_lag) * (batch_var - used_var.detach())
-                used_var /= (1. - self.bn_lag**(self.step[0] + 1))
+                used_mean = batch_mean - (1 - self.bn_lag) * (
+                    batch_mean - used_mean.detach()
+                )
+                used_mean /= 1.0 - self.bn_lag ** (self.step[0] + 1)
+                used_var = batch_var - (1 - self.bn_lag) * (
+                    batch_var - used_var.detach()
+                )
+                used_var /= 1.0 - self.bn_lag ** (self.step[0] + 1)
 
             # update running estimates
             self.running_mean -= self.decay * (self.running_mean - batch_mean.data)
@@ -78,7 +82,9 @@ class MovingBatchNormNd(nn.Module):
         if logpx is None:
             return y
         else:
-            return y, logpx - self._logdetgrad(x, used_var).view(x.size(0), -1).sum(1, keepdim=True)
+            return y, logpx - self._logdetgrad(x, used_var).view(x.size(0), -1).sum(
+                1, keepdim=True
+            )
 
     def _reverse(self, y, logpy=None):
         used_mean = self.running_mean
@@ -96,7 +102,9 @@ class MovingBatchNormNd(nn.Module):
         if logpy is None:
             return x
         else:
-            return x, logpy + self._logdetgrad(x, used_var).view(x.size(0), -1).sum(1, keepdim=True)
+            return x, logpy + self._logdetgrad(x, used_var).view(x.size(0), -1).sum(
+                1, keepdim=True
+            )
 
     def _logdetgrad(self, x, used_var):
         logdetgrad = -0.5 * torch.log(used_var + self.eps)
@@ -107,8 +115,8 @@ class MovingBatchNormNd(nn.Module):
 
     def __repr__(self):
         return (
-            '{name}({num_features}, eps={eps}, decay={decay}, bn_lag={bn_lag},'
-            ' affine={affine})'.format(name=self.__class__.__name__, **self.__dict__)
+            "{name}({num_features}, eps={eps}, decay={decay}, bn_lag={bn_lag},"
+            " affine={affine})".format(name=self.__class__.__name__, **self.__dict__)
         )
 
 

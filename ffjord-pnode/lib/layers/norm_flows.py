@@ -5,19 +5,18 @@ from torch.autograd import grad
 
 
 class PlanarFlow(nn.Module):
-
     def __init__(self, nd=1):
         super(PlanarFlow, self).__init__()
         self.nd = nd
         self.activation = torch.tanh
 
-        self.register_parameter('u', nn.Parameter(torch.randn(self.nd)))
-        self.register_parameter('w', nn.Parameter(torch.randn(self.nd)))
-        self.register_parameter('b', nn.Parameter(torch.randn(1)))
+        self.register_parameter("u", nn.Parameter(torch.randn(self.nd)))
+        self.register_parameter("w", nn.Parameter(torch.randn(self.nd)))
+        self.register_parameter("b", nn.Parameter(torch.randn(1)))
         self.reset_parameters()
 
     def reset_parameters(self):
-        stdv = 1. / math.sqrt(self.nd)
+        stdv = 1.0 / math.sqrt(self.nd)
         self.u.data.uniform_(-stdv, stdv)
         self.w.data.uniform_(-stdv, stdv)
         self.b.data.fill_(0)
@@ -35,7 +34,7 @@ class PlanarFlow(nn.Module):
     def forward(self, z, logp=None, reverse=False):
         """Computes f(z) and log q(f(z))"""
 
-        assert not reverse, 'Planar normalizing flow cannot be reversed.'
+        assert not reverse, "Planar normalizing flow cannot be reversed."
 
         logp - torch.log(self._detgrad(z) + 1e-8)
         h = self.activation(torch.mm(z, self.w.view(self.nd, 1)) + self.b)
@@ -59,7 +58,13 @@ class PlanarFlow(nn.Module):
         with torch.enable_grad():
             z = z.requires_grad_(True)
             h = self.activation(torch.mm(z, self.w.view(self.nd, 1)) + self.b)
-            psi = grad(h, z, grad_outputs=torch.ones_like(h), create_graph=True, only_inputs=True)[0]
+            psi = grad(
+                h,
+                z,
+                grad_outputs=torch.ones_like(h),
+                create_graph=True,
+                only_inputs=True,
+            )[0]
         u_dot_psi = torch.mm(psi, self.u.view(self.nd, 1))
         detgrad = 1 + u_dot_psi
         return detgrad

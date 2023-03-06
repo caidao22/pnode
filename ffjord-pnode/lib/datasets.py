@@ -20,8 +20,10 @@ class Dataset(object):
 
 
 class CelebA(Dataset):
-    TRAIN_LOC = 'data/celeba/celeba_train.pth'
-    VAL_LOC = 'data/celeba/celeba_val.pth'
+    TRAIN_LOC = "data/celeba/celeba_train.pth"
+    VAL_LOC = "data/celeba/celeba_val.pth"
 
     def __init__(self, train=True, transform=None):
-        return super(CelebA, self).__init__(self.TRAIN_LOC if train else self.VAL_LOC, transform)
+        return super(CelebA, self).__init__(
+            self.TRAIN_LOC if train else self.VAL_LOC, transform
+        )

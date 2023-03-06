@@ -11,12 +11,12 @@ class ZeroMeanTransform(nn.Module):
 
     def forward(self, x, logpx=None, reverse=False):
         if reverse:
-            x = x + .5
+            x = x + 0.5
             if logpx is None:
                 return x
             return x, logpx
         else:
-            x = x - .5
+            x = x - 0.5
             if logpx is None:
                 return x
             return x, logpx

@@ -24,11 +24,11 @@ class MultiscaleParallelCNF(nn.Module):
     def __init__(
         self,
         input_size,
-        n_scale=float('inf'),
+        n_scale=float("inf"),
         n_blocks=1,
         intermediate_dims=(32,),
         alpha=-1,
-        time_length=1.,
+        time_length=1.0,
     ):
         super(MultiscaleParallelCNF, self).__init__()
         print(input_size)
@@ -39,7 +39,10 @@ class MultiscaleParallelCNF(nn.Module):
         self.time_length = time_length
 
         if not self.n_scale > 0:
-            raise ValueError('Could not compute number of scales for input of' 'size (%d,%d,%d,%d)' % input_size)
+            raise ValueError(
+                "Could not compute number of scales for input of"
+                "size (%d,%d,%d,%d)" % input_size
+            )
 
         self.transforms = self._build_net(input_size)
 
@@ -50,9 +53,13 @@ class MultiscaleParallelCNF(nn.Module):
             ParallelCNFLayers(
                 initial_size=(c, h, w),
                 idims=self.intermediate_dims,
-                init_layer=(layers.LogitTransform(self.alpha) if self.alpha > 0 else layers.ZeroMeanTransform()),
+                init_layer=(
+                    layers.LogitTransform(self.alpha)
+                    if self.alpha > 0
+                    else layers.ZeroMeanTransform()
+                ),
                 n_blocks=self.n_blocks,
-                time_length=self.time_length
+                time_length=self.time_length,
             )
         )
         return nn.ModuleList(transforms)
@@ -61,13 +68,19 @@ class MultiscaleParallelCNF(nn.Module):
         if len(self.regularization_fns) == 0:
             return None
 
-        acc_reg_states = tuple([0.] * len(self.regularization_fns))
+        acc_reg_states = tuple([0.0] * len(self.regularization_fns))
         for module in self.modules():
             if isinstance(module, layers.CNF):
                 acc_reg_states = tuple(
-                    acc + reg for acc, reg in zip(acc_reg_states, module.get_regularization_states())
+                    acc + reg
+                    for acc, reg in zip(
+                        acc_reg_states, module.get_regularization_states()
+                    )
                 )
-        return sum(state * coeff for state, coeff in zip(acc_reg_states, self.regularization_coeffs))
+        return sum(
+            state * coeff
+            for state, coeff in zip(acc_reg_states, self.regularization_coeffs)
+        )
 
     def _calc_n_scale(self, input_size):
         _, _, h, w = input_size
@@ -111,7 +124,6 @@ class MultiscaleParallelCNF(nn.Module):
         return z if logpz is None else (z, _logpz)
 
 
-
 class ParallelSumModules(nn.Module):
     def __init__(self, models):
         super(ParallelSumModules, self).__init__()
@@ -131,18 +143,31 @@ class ParallelCNFLayers(layers.SequentialFlow):
         scales=4,
         init_layer=None,
         n_blocks=1,
-        time_length=1.,
+        time_length=1.0,
     ):
         strides = tuple([1] + [1 for _ in idims])
         chain = []
         if init_layer is not None:
             chain.append(init_layer)
 
-        get_size = lambda s: (initial_size[0] * (4**s), initial_size[1] // (2**s), initial_size[2] // (2**s))
+        get_size = lambda s: (
+            initial_size[0] * (4**s),
+            initial_size[1] // (2**s),
+            initial_size[2] // (2**s),
+        )
 
         def _make_odefunc():
-            nets = [ODEnet(idims, get_size(scale), strides, True, layer_type="concat", num_squeeze=scale)
-                    for scale in range(scales)]
+            nets = [
+                ODEnet(
+                    idims,
+                    get_size(scale),
+                    strides,
+                    True,
+                    layer_type="concat",
+                    num_squeeze=scale,
+                )
+                for scale in range(scales)
+            ]
             net = ParallelSumModules(nets)
             f = layers.ODEfunc(net)
             return f

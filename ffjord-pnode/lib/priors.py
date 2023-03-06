@@ -8,7 +8,6 @@ eps = 1e-8
 
 
 class Uniform(nn.Module):
-
     def __init__(self, a=0, b=1):
         super(Normal, self).__init__()
 
@@ -17,8 +16,7 @@ class Uniform(nn.Module):
 
     def _check_inputs(self, size, params):
         if size is None and params is None:
-            raise ValueError(
-                'Either one of size or params should be provided.')
+            raise ValueError("Either one of size or params should be provided.")
         elif size is not None and params is not None:
             a = params.select(-1, 0).expand(size)
             b = params.select(-1, 1).expand(size)
@@ -33,8 +31,8 @@ class Uniform(nn.Module):
             return a, b
         else:
             raise ValueError(
-                'Given invalid inputs: size={}, params={})'.format(
-                    size, params))
+                "Given invalid inputs: size={}, params={})".format(size, params)
+            )
 
     def sample(self, size=None, params=None):
         mu, logsigma = self._check_inputs(size, params)
@@ -71,14 +69,14 @@ class Uniform(nn.Module):
         return True
 
     def __repr__(self):
-        tmpstr = self.__class__.__name__ + ' ({:.3f}, {:.3f})'.format(
-            self.mu.data[0], self.logsigma.exp().data[0])
+        tmpstr = self.__class__.__name__ + " ({:.3f}, {:.3f})".format(
+            self.mu.data[0], self.logsigma.exp().data[0]
+        )
         return tmpstr
 
 
 class Normal(nn.Module):
-    """Samples from a Normal distribution using the reparameterization trick.
-    """
+    """Samples from a Normal distribution using the reparameterization trick."""
 
     def __init__(self, mu=0, sigma=1):
         super(Normal, self).__init__()
@@ -89,8 +87,7 @@ class Normal(nn.Module):
 
     def _check_inputs(self, size, mu_logsigma):
         if size is None and mu_logsigma is None:
-            raise ValueError(
-                'Either one of size or params should be provided.')
+            raise ValueError("Either one of size or params should be provided.")
         elif size is not None and mu_logsigma is not None:
             mu = mu_logsigma.select(-1, 0).expand(size)
             logsigma = mu_logsigma.select(-1, 1).expand(size)
@@ -105,8 +102,10 @@ class Normal(nn.Module):
             return mu, logsigma
         else:
             raise ValueError(
-                'Given invalid inputs: size={}, mu_logsigma={})'.format(
-                    size, mu_logsigma))
+                "Given invalid inputs: size={}, mu_logsigma={})".format(
+                    size, mu_logsigma
+                )
+            )
 
     def sample(self, size=None, params=None):
         mu, logsigma = self._check_inputs(size, params)
@@ -139,8 +138,12 @@ class Normal(nn.Module):
             sample_mu, sample_logsigma = mu, logsigma
 
         c = self.normalization.type_as(sample_mu.data)
-        nll = logsigma.mul(-2).exp() * (sample_mu - mu).pow(2) \
-            + torch.exp(sample_logsigma.mul(2) - logsigma.mul(2)) + 2 * logsigma + c
+        nll = (
+            logsigma.mul(-2).exp() * (sample_mu - mu).pow(2)
+            + torch.exp(sample_logsigma.mul(2) - logsigma.mul(2))
+            + 2 * logsigma
+            + c
+        )
         return nll.mul(0.5)
 
     def kld(self, params):
@@ -172,14 +175,14 @@ class Normal(nn.Module):
         return True
 
     def __repr__(self):
-        tmpstr = self.__class__.__name__ + ' ({:.3f}, {:.3f})'.format(
-            self.mu.data[0], self.logsigma.exp().data[0])
+        tmpstr = self.__class__.__name__ + " ({:.3f}, {:.3f})".format(
+            self.mu.data[0], self.logsigma.exp().data[0]
+        )
         return tmpstr
 
 
 class Laplace(nn.Module):
-    """Samples from a Laplace distribution using the reparameterization trick.
-    """
+    """Samples from a Laplace distribution using the reparameterization trick."""
 
     def __init__(self, mu=0, scale=1):
         super(Laplace, self).__init__()
@@ -190,8 +193,7 @@ class Laplace(nn.Module):
 
     def _check_inputs(self, size, mu_logscale):
         if size is None and mu_logscale is None:
-            raise ValueError(
-                'Either one of size or params should be provided.')
+            raise ValueError("Either one of size or params should be provided.")
         elif size is not None and mu_logscale is not None:
             mu = mu_logscale.select(-1, 0).expand(size)
             logscale = mu_logscale.select(-1, 1).expand(size)
@@ -206,8 +208,10 @@ class Laplace(nn.Module):
             return mu, logscale
         else:
             raise ValueError(
-                'Given invalid inputs: size={}, mu_logscale={})'.format(
-                    size, mu_logscale))
+                "Given invalid inputs: size={}, mu_logscale={})".format(
+                    size, mu_logscale
+                )
+            )
 
     def sample(self, size=None, params=None):
         mu, logscale = self._check_inputs(size, params)
@@ -227,7 +231,7 @@ class Laplace(nn.Module):
 
         c = self.normalization.type_as(sample.data)
         inv_scale = torch.exp(-logscale)
-        ins_exp = - torch.abs(sample - mu) * inv_scale
+        ins_exp = -torch.abs(sample - mu) * inv_scale
         return ins_exp + c - logscale
 
     def get_params(self):
@@ -246,6 +250,7 @@ class Laplace(nn.Module):
         return True
 
     def __repr__(self):
-        tmpstr = self.__class__.__name__ + ' ({:.3f}, {:.3f})'.format(
-            self.mu.data[0], self.logscale.exp().data[0])
+        tmpstr = self.__class__.__name__ + " ({:.3f}, {:.3f})".format(
+            self.mu.data[0], self.logscale.exp().data[0]
+        )
         return tmpstr

@@ -18,7 +18,9 @@ class ResNet(container.SequentialDiffEq):
         self.n_resblocks = n_resblocks
 
         layers = []
-        layers.append(conv_block(dim, intermediate_dim, ksize=3, stride=1, padding=1, bias=False))
+        layers.append(
+            conv_block(dim, intermediate_dim, ksize=3, stride=1, padding=1, bias=False)
+        )
         for _ in range(n_resblocks):
             layers.append(BasicBlock(intermediate_dim, conv_block))
         layers.append(nn.GroupNorm(NGROUPS, intermediate_dim, eps=1e-4))
@@ -28,10 +30,8 @@ class ResNet(container.SequentialDiffEq):
         super(ResNet, self).__init__(*layers)
 
     def __repr__(self):
-        return (
-            '{name}({dim}, intermediate_dim={intermediate_dim}, n_resblocks={n_resblocks})'.format(
-                name=self.__class__.__name__, **self.__dict__
-            )
+        return "{name}({dim}, intermediate_dim={intermediate_dim}, n_resblocks={n_resblocks})".format(
+            name=self.__class__.__name__, **self.__dict__
         )
 
 
