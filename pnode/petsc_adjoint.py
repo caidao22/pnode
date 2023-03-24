@@ -22,7 +22,7 @@ class RHSJacShell:
             X.attachDLPackInfo(self.ode_.cached_U)
             x_tensor = dlpack.from_dlpack(X.toDLPack(mode="r"))
             Y.attachDLPackInfo(self.ode_.cached_U)
-            y = dlpack.from_dlpack(Y.toDLPack())
+            y = dlpack.from_dlpack(Y)
         else:
             x_tensor = torch.from_numpy(X.array_r.reshape(self.ode_.tensor_size)).to(
                 device=self.ode_.device, dtype=self.ode_.tensor_dtype
@@ -54,7 +54,7 @@ class RHSJacShell:
             X.attachDLPackInfo(self.ode_.cached_U)
             x_tensor = dlpack.from_dlpack(X.toDLPack(mode="r"))
             Y.attachDLPackInfo(self.ode_.cached_U)
-            y = dlpack.from_dlpack(Y.toDLPack())
+            y = dlpack.from_dlpack(Y)
         else:
             x_tensor = torch.from_numpy(X.array_r.reshape(self.ode_.tensor_size)).to(
                 device=self.ode_.device, dtype=self.ode_.tensor_dtype
@@ -102,7 +102,7 @@ class IJacShell:
             X.attachDLPackInfo(self.ode_.cached_U)
             self.x_tensor = dlpack.from_dlpack(X.toDLPack(mode="r"))
             Y.attachDLPackInfo(self.ode_.cached_U)
-            y = dlpack.from_dlpack(Y.toDLPack())
+            y = dlpack.from_dlpack(Y)
         else:
             self.x_tensor = torch.from_numpy(
                 X.array_r.reshape(self.ode_.tensor_size)
@@ -147,7 +147,7 @@ class IJacShell:
             X.attachDLPackInfo(self.ode_.cached_U)
             self.x_tensor = dlpack.from_dlpack(X.toDLPack(mode="r"))
             Y.attachDLPackInfo(self.ode_.cached_U)
-            y = dlpack.from_dlpack(Y.toDLPack())
+            y = dlpack.from_dlpack(Y)
         else:
             self.x_tensor = torch.from_numpy(
                 X.array_r.reshape(self.ode_.tensor_size)
@@ -206,7 +206,7 @@ class IJacPShell:
     def multTranspose(self, A, X, Y):
         if self.ode_.use_dlpack:
             Y.attachDLPackInfo(self.ode_.adj_p[0])
-            y = dlpack.from_dlpack(Y.toDLPack())
+            y = dlpack.from_dlpack(Y)
         else:
             y = Y.array
         f_params = tuple(
@@ -235,7 +235,7 @@ class RHSJacPShell:
     def multTranspose(self, A, X, Y):
         if self.ode_.use_dlpack:
             Y.attachDLPackInfo(self.ode_.adj_p[0])
-            y = dlpack.from_dlpack(Y.toDLPack())
+            y = dlpack.from_dlpack(Y)
         else:
             y = Y.array
         f_params = tuple(
@@ -283,7 +283,7 @@ class ODEPetsc(object):
             u_tensor = dlpack.from_dlpack(U.toDLPack(mode="r"))
             # u_tensor = dlpack.from_dlpack(U.toDLPack(mode='r')).view(self.tensor_size).type(self.tensor_type)
             F.attachDLPackInfo(self.cached_U)
-            dudt = dlpack.from_dlpack(F.toDLPack())
+            dudt = dlpack.from_dlpack(F)
             # Resotring the handle set the offloadmask flag to PETSC_OFFLOAD_GPU, but it zeros out the GPU memory accidentally, which is probably a bug
             if torch.cuda.is_initialized():
                 hdl = F.getCUDAHandle("w")
@@ -308,7 +308,7 @@ class ODEPetsc(object):
                 hdl = F.getCUDAHandle("w")
                 F.restoreCUDAHandle(hdl, "w")
             F.attachDLPackInfo(self.cached_U)
-            dudt = dlpack.from_dlpack(F.toDLPack())
+            dudt = dlpack.from_dlpack(F)
             if self.mass is None:
                 dudt.copy_(udot_tensor - self.funcIM(t, u_tensor))
             else:
@@ -494,7 +494,7 @@ class ODEPetsc(object):
             if use_dlpack:
                 # self.cached_U = PETSc.Vec().createWithDLPack(dlpack.to_dlpack(self.cached_u_tensor)) # convert to PETSc vec
                 self.cached_U = PETSc.Vec().createWithDLPack(
-                    dlpack.to_dlpack(u_tensor.detach().clone())
+                    u_tensor.detach().clone()
                 )  # convert to PETSc vec, used only for providing info
             else:
                 self.cached_U = PETSc.Vec().createWithArray(
@@ -503,9 +503,7 @@ class ODEPetsc(object):
             if implicit_form or imex_form:
                 self.fIM_tensor = u_tensor.detach().clone()
                 if use_dlpack:
-                    FIM = PETSc.Vec().createWithDLPack(
-                        dlpack.to_dlpack(self.fIM_tensor)
-                    )
+                    FIM = PETSc.Vec().createWithDLPack(self.fIM_tensor)
                 else:
                     FIM = PETSc.Vec().createWithArray(self.fIM_tensor.cpu().numpy())
                 self.ts.setIFunction(self.evalIFunction, FIM)
@@ -520,7 +518,7 @@ class ODEPetsc(object):
             if not implicit_form or imex_form:
                 self.f_tensor = u_tensor.detach().clone()
                 if use_dlpack:
-                    F = PETSc.Vec().createWithDLPack(dlpack.to_dlpack(self.f_tensor))
+                    F = PETSc.Vec().createWithDLPack(self.f_tensor)
                 else:
                     F = PETSc.Vec().createWithArray(self.f_tensor.cpu().numpy())
                 self.ts.setRHSFunction(self.evalRHSFunction, F)
@@ -557,21 +555,13 @@ class ODEPetsc(object):
                 self.adj_u = []
                 if self.use_dlpack:
                     self.adj_u_tensor = u_tensor.detach().clone()
-                    self.adj_u.append(
-                        PETSc.Vec().createWithDLPack(
-                            dlpack.to_dlpack(self.adj_u_tensor)
-                        )
-                    )
+                    self.adj_u.append(PETSc.Vec().createWithDLPack(self.adj_u_tensor))
                 else:
                     self.adj_u.append(PETSc.Vec().createSeq(self.n, comm=self.comm))
                 self.adj_p = []
                 if self.use_dlpack:
                     self.adj_p_tensor = self.flat_params.detach().clone()
-                    self.adj_p.append(
-                        PETSc.Vec().createWithDLPack(
-                            dlpack.to_dlpack(self.adj_p_tensor)
-                        )
-                    )
+                    self.adj_p.append(PETSc.Vec().createWithDLPack(self.adj_p_tensor))
                 else:
                     self.adj_p.append(PETSc.Vec().createSeq(self.np, comm=self.comm))
                 # self.adj_p.append(torch.zeros_like(self.flat_params))
@@ -606,9 +596,7 @@ class ODEPetsc(object):
             self.u0 = (
                 u0.detach().clone()
             )  # increase the object reference, otherwise the dlpack object may be deleted early and cause a bug
-            U = PETSc.Vec().createWithDLPack(
-                dlpack.to_dlpack(self.u0)
-            )  # convert to PETSc vec
+            U = PETSc.Vec().createWithDLPack(self.u0)  # convert to PETSc vec
         else:
             U = PETSc.Vec().createWithArray(
                 u0.cpu().clone().numpy()
