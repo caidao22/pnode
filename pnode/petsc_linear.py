@@ -1,0 +1,54 @@
+import petsc4py
+from petsc4py import PETSc
+
+
+class PCShell:
+    def __init__(self, A, m, n, use_cuda):
+        self._m = m
+        self._n = n
+        self._ksp = PETSc.KSP()
+        self._ksp.create(PETSc.COMM_WORLD)
+        self._ksp.setType("hpddm")
+        self._ksp.setOperators(A)
+        self._ksp.setOptionsPrefix("pnode_inner_")
+        self._ksp.setInitialGuessNonzero(True)
+        self._ksp.setFromOptions()
+        self._use_cuda = use_cuda
+        self._random = PETSc.Random()
+        self._random.create(PETSc.COMM_WORLD)
+        self._random.setInterval([0, 0.001])
+
+    def apply(self, pc, x, y):
+        # SNES uses a zero initial guess for KSP by default
+        # We force a nonzero initial guess to circumvent the difficulty in dealing with
+        # zero columns in the RHS mat when using KSPMatSolve()
+        y.setRandom(self._random)
+        if self._use_cuda:
+            xhdl = x.getCUDAHandle("r")
+            yhdl = y.getCUDAHandle("rw")
+            X = PETSc.Mat().createDenseCUDA([self._n, self._m], cudahandle=xhdl)
+            Y = PETSc.Mat().createDenseCUDA([self._n, self._m], cudahandle=yhdl)
+            x.restoreCUDAHandle(xhdl, "r")
+            y.restoreCUDAHandle(yhdl, "rw")
+        else:
+            X = PETSc.Mat().createDense([self._n, self._m], array=x.array_r)
+            Y = PETSc.Mat().createDense([self._n, self._m], array=y.array)
+        self._ksp.matSolve(X, Y)
+        X.destroy()
+        Y.destroy()
+
+    def applyTranspose(self, pc, x, y):
+        y.setRandom(self._random)
+        if self._use_cuda:
+            xhdl = x.getCUDAHandle("r")
+            yhdl = y.getCUDAHandle("rw")
+            X = PETSc.Mat().createDenseCUDA([self._n, self._m], cudahandle=xhdl)
+            Y = PETSc.Mat().createDenseCUDA([self._n, self._m], cudahandle=yhdl)
+            x.restoreCUDAHandle(xhdl, "r")
+            y.restoreCUDAHandle(yhdl, "rw")
+        else:
+            X = PETSc.Mat().createDense([self._n, self._m], array=x.array_r)
+            Y = PETSc.Mat().createDense([self._n, self._m], array=y.array)
+        self._ksp.matSolveTranspose(X, Y)
+        X.destroy()
+        Y.destroy()

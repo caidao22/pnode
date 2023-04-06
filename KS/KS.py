@@ -63,7 +63,6 @@ args, unknown = parser.parse_known_args()
 
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-# device = 'cpu'
 initial_state = torch.tensor([[1.0, 0.0, 0.0]], dtype=torch.float64)
 if not args.petsc_ts_adapt:
     unknown.append("-ts_adapt_type")
@@ -85,8 +84,8 @@ else:
 
 
 def get_data(stride=1):
-    train_data_path = "/Users/hongzhang/Projects/RNN-RC-Chaos/Data/KuramotoSivashinskyGP512/Data/training_data_N100000.pickle"
-    test_data_path = "/Users/hongzhang/Projects/RNN-RC-Chaos/Data/KuramotoSivashinskyGP512/Data/testing_data_N100000.pickle"
+    train_data_path = "./training_data_N100000.pickle"
+    test_data_path = "./testing_data_N100000.pickle"
 
     with open(train_data_path, "rb") as file:
         # Pickle the "data" dictionary using the highest protocol available.
@@ -95,8 +94,8 @@ def get_data(stride=1):
         N_train, dim = np.shape(input_sequence)
         N_train = 1000
         dt = data["dt"]
-        initial_state_train = torch.from_numpy(input_sequence[0, stride//2::stride])
-        u_train = input_sequence[:N_train, stride//2::stride]
+        initial_state_train = torch.from_numpy(input_sequence[0, stride // 2 :: stride])
+        u_train = input_sequence[:N_train, stride // 2 :: stride]
         t_train = dt * np.linspace(0, N_train - 1, N_train)
         del data
     with open(test_data_path, "rb") as file:
@@ -105,8 +104,8 @@ def get_data(stride=1):
         N_test, dim = np.shape(input_sequence)
         N_test = 1000
         dt = data["dt"]
-        initial_state_test = torch.from_numpy(input_sequence[0, stride//2::stride])
-        u_test = input_sequence[:N_test, stride//2::stride]
+        initial_state_test = torch.from_numpy(input_sequence[0, stride // 2 :: stride])
+        u_test = input_sequence[:N_test, stride // 2 :: stride]
         t_test = dt * np.linspace(0, N_test - 1, N_test)
         del data
     trainloader = DataLoader(
@@ -193,7 +192,9 @@ def split_and_preprocess(
     return trainloader, testloader
 
 
-initial_state_train, initial_state_test, trainloader, testloader = get_data(stride=8) # reduce doe from 512 to 64
+initial_state_train, initial_state_test, trainloader, testloader = get_data(
+    stride=8
+)  # reduce doe from 512 to 64
 
 
 def makedirs(dirname):
@@ -332,6 +333,7 @@ if __name__ == "__main__":
         from models.snode import ODEFunc
     if args.pnode_model == "imex":
         from models.imex import ODEFuncIM, ODEFuncEX
+
         if args.double_prec:
             funcIM_PNODE = ODEFuncIM().double().to(device)
             funcEX_PNODE = ODEFuncEX().double().to(device)
@@ -339,7 +341,12 @@ if __name__ == "__main__":
             funcIM_PNODE = ODEFuncIM().to(device)
             funcEX_PNODE = ODEFuncEX().to(device)
         ode_PNODE.setupTS(
-            torch.zeros(args.batch_size, *initial_state_train.shape, dtype=torch.float64),
+            torch.zeros(
+                args.batch_size,
+                *initial_state_train.shape,
+                dtype=torch.float64,
+                device=device
+            ),
             funcIM_PNODE,
             step_size=step_size,
             method="imex",
@@ -347,12 +354,18 @@ if __name__ == "__main__":
             implicit_form=args.implicit_form,
             imex_form=True,
             func2=funcEX_PNODE,
+            batch_size=args.batch_size,
         )
         params = list(funcIM_PNODE.parameters()) + list(funcEX_PNODE.parameters())
         optimizer_PNODE = optim.AdamW(params, lr=5e-3)
         ode_test_PNODE = petsc_adjoint.ODEPetsc()
         ode_test_PNODE.setupTS(
-            torch.zeros(args.batch_size, *initial_state_train.shape, dtype=torch.float64),
+            torch.zeros(
+                args.batch_size,
+                *initial_state_train.shape,
+                dtype=torch.float64,
+                device=device
+            ),
             funcIM_PNODE,
             step_size=step_size,
             method="imex",
@@ -360,6 +373,7 @@ if __name__ == "__main__":
             implicit_form=args.implicit_form,
             imex_form=True,
             func2=funcEX_PNODE,
+            batch_size=args.batch_size,
         )
     else:
         if args.double_prec:
@@ -367,7 +381,12 @@ if __name__ == "__main__":
         else:
             func_PNODE = ODEFunc().to(device)
         ode_PNODE.setupTS(
-            torch.zeros(args.batch_size, *initial_state_train.shape, dtype=torch.float64),
+            torch.zeros(
+                args.batch_size,
+                *initial_state_train.shape,
+                dtype=torch.float64,
+                device=device
+            ),
             func_PNODE,
             step_size=step_size,
             method=args.pnode_method,
@@ -377,7 +396,12 @@ if __name__ == "__main__":
         optimizer_PNODE = optim.AdamW(func_PNODE.parameters(), lr=5e-3)
         ode_test_PNODE = petsc_adjoint.ODEPetsc()
         ode_test_PNODE.setupTS(
-            torch.zeros(args.batch_size, *initial_state_train.shape, dtype=torch.float64),
+            torch.zeros(
+                args.batch_size,
+                *initial_state_train.shape,
+                dtype=torch.float64,
+                device=device
+            ),
             func_PNODE,
             step_size=step_size,
             method=args.pnode_method,
@@ -413,6 +437,7 @@ if __name__ == "__main__":
         for inner, (indices, u_data, u_target, t_data, t_target) in enumerate(
             trainloader
         ):
+            u_data, u_target = u_data.to(device), u_target.to(device)
             optimizer_PNODE.zero_grad()
             pred_u_PNODE = ode_PNODE.odeint_adjoint(u_data, torch.tensor([0.25]))
             loss_PNODE = torch.mean(torch.abs(pred_u_PNODE - u_target))
@@ -422,7 +447,9 @@ if __name__ == "__main__":
 
             total_norm = 0
             if args.pnode_model == "imex":
-                params = list(funcIM_PNODE.parameters()) + list(funcEX_PNODE.parameters())
+                params = list(funcIM_PNODE.parameters()) + list(
+                    funcEX_PNODE.parameters()
+                )
             else:
                 params = func_PNODE.parameters()
             for p in params:
@@ -439,6 +466,7 @@ if __name__ == "__main__":
                 for inner, (indices, u_data, u_target, t_data, t_target) in enumerate(
                     testloader
                 ):
+                    u_data, u_target = u_data.to(device), u_target.to(device)
                     ntests += 1
                     pred_u_PNODE = ode_test_PNODE.odeint_adjoint(
                         u_data, torch.tensor([0.25])
@@ -453,13 +481,13 @@ if __name__ == "__main__":
                         + [loss_std_PNODE.item()]
                         + [torch.std(torch.abs(pred_u_PNODE - u_target)).cpu()]
                     )
-                avg_test_loss = sum(loss_PNODE_array[-ntests:])/ntests
+                avg_test_loss = sum(loss_PNODE_array[-ntests:]) / ntests
                 print(
                     "PNODE: Iter {:05d} | Train Time {:.6f} | Avg Test Loss {:.6f}".format(
                         itr,
                         end_PNODE - start_PNODE,
                         avg_test_loss,
-                        )
+                    )
                 )
                 if avg_test_loss < best_loss:
                     best_loss = avg_test_loss

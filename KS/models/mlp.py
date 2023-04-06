@@ -1,5 +1,6 @@
 import torch.nn as nn
 
+
 class ODEFunc(nn.Module):
     def __init__(self, input_size=64, hidden=200):
         super(ODEFunc, self).__init__()
