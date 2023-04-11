@@ -63,7 +63,7 @@ args, unknown = parser.parse_known_args()
 
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-initial_state = torch.tensor([[1.0, 0.0, 0.0]], dtype=torch.float64)
+initial_state = torch.tensor([[1.0, 0.0, 0.0]], dtype=torch.float64 if args.double_prec else torch.float32)
 if not args.petsc_ts_adapt:
     unknown.append("-ts_adapt_type")
     unknown.append("none")  # disable adaptor in PETSc
@@ -109,7 +109,7 @@ def get_data(stride=1):
         t_test = dt * np.linspace(0, N_test - 1, N_test)
         del data
     trainloader = DataLoader(
-        DistFuncDataset(u_train, t_train),
+        DistFuncDataset(u_train, t_train, args.double_prec),
         batch_size=args.batch_size,
         shuffle=False,
         pin_memory=True,
@@ -117,7 +117,7 @@ def get_data(stride=1):
         drop_last=True,
     )
     testloader = DataLoader(
-        DistFuncDataset(u_train, t_train),
+        DistFuncDataset(u_train, t_train, args.double_prec),
         batch_size=args.batch_size,
         shuffle=False,
         pin_memory=True,
@@ -128,9 +128,13 @@ def get_data(stride=1):
 
 
 class DistFuncDataset(Dataset):
-    def __init__(self, u_array, t_array):
-        self.u = torch.from_numpy(u_array).double()
-        self.t = torch.from_numpy(t_array).double()
+    def __init__(self, u_array, t_array, double_prec=True):
+        if double_prec:
+            self.u = torch.from_numpy(u_array).double()
+            self.t = torch.from_numpy(t_array).double()
+        else:
+            self.u = torch.from_numpy(u_array.astype(np.float32))
+            self.t = torch.from_numpy(t_array.astype(np.float32))
 
     def __len__(self):
         return len(self.u) - 1
@@ -168,7 +172,7 @@ def split_and_preprocess(
         if write:
             fh.create_dataset("u_" + name, data=usub)
             fh.create_dataset("t_" + name, data=tsub)
-        dataset = DistFuncDataset(usub, tsub)
+        dataset = DistFuncDataset(usub, tsub, args.double_prec)
         if "train" in name:
             trainloader = DataLoader(
                 dataset,
@@ -344,7 +348,7 @@ if __name__ == "__main__":
             torch.zeros(
                 args.batch_size,
                 *initial_state_train.shape,
-                dtype=torch.float64,
+                dtype=torch.float64 if args.double_prec else torch.float32,
                 device=device
             ),
             funcIM_PNODE,
@@ -363,7 +367,7 @@ if __name__ == "__main__":
             torch.zeros(
                 args.batch_size,
                 *initial_state_train.shape,
-                dtype=torch.float64,
+                dtype=torch.float64 if args.double_prec else torch.float32,
                 device=device
             ),
             funcIM_PNODE,
@@ -384,7 +388,7 @@ if __name__ == "__main__":
             torch.zeros(
                 args.batch_size,
                 *initial_state_train.shape,
-                dtype=torch.float64,
+                dtype=torch.float64 if args.double_prec else torch.float32,
                 device=device
             ),
             func_PNODE,
@@ -399,7 +403,7 @@ if __name__ == "__main__":
             torch.zeros(
                 args.batch_size,
                 *initial_state_train.shape,
-                dtype=torch.float64,
+                dtype=torch.float64 if args.double_prec else torch.float32,
                 device=device
             ),
             func_PNODE,
