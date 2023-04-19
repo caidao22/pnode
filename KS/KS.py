@@ -53,6 +53,7 @@ parser.add_argument("--seed", type=int, default=0)
 parser.add_argument("--train_dir", type=str, metavar="PATH", default="./train_results")
 parser.add_argument("--hotstart", action="store_true")
 parser.add_argument("--petsc_ts_adapt", action="store_true")
+parser.add_argument("--lr", type=float, default=5e-3)
 args, unknown = parser.parse_known_args()
 
 # Set these random seeds, so everything can be reproduced.
@@ -92,7 +93,7 @@ def get_data(stride=1):
         data = pickle.load(file)
         input_sequence = data["train_input_sequence"]
         N_train, dim = np.shape(input_sequence)
-        N_train = 1000
+        # N_train = 1000
         dt = data["dt"]
         initial_state_train = torch.from_numpy(input_sequence[0, stride // 2 :: stride])
         u_train = input_sequence[:N_train, stride // 2 :: stride]
@@ -102,7 +103,7 @@ def get_data(stride=1):
         data = pickle.load(file)
         input_sequence = data["test_input_sequence"]
         N_test, dim = np.shape(input_sequence)
-        N_test = 1000
+        N_test = 2500
         dt = data["dt"]
         initial_state_test = torch.from_numpy(input_sequence[0, stride // 2 :: stride])
         u_test = input_sequence[:N_test, stride // 2 :: stride]
@@ -124,6 +125,7 @@ def get_data(stride=1):
         num_workers=1,
         drop_last=True,
     )
+    print("Finished loading data")
     return initial_state_train, initial_state_test, trainloader, testloader
 
 
@@ -361,7 +363,7 @@ if __name__ == "__main__":
             batch_size=args.batch_size,
         )
         params = list(funcIM_PNODE.parameters()) + list(funcEX_PNODE.parameters())
-        optimizer_PNODE = optim.AdamW(params, lr=5e-3)
+        optimizer_PNODE = optim.AdamW(params, lr=args.lr)
         ode_test_PNODE = petsc_adjoint.ODEPetsc()
         ode_test_PNODE.setupTS(
             torch.zeros(
@@ -397,7 +399,7 @@ if __name__ == "__main__":
             enable_adjoint=True,
             implicit_form=args.implicit_form,
         )
-        optimizer_PNODE = optim.AdamW(func_PNODE.parameters(), lr=5e-3)
+        optimizer_PNODE = optim.AdamW(func_PNODE.parameters(), lr=args.lr)
         ode_test_PNODE = petsc_adjoint.ODEPetsc()
         ode_test_PNODE.setupTS(
             torch.zeros(
@@ -436,6 +438,8 @@ if __name__ == "__main__":
         func_PNODE.load_state_dict(ckpt["func_state_dict"])
         optimizer_PNODE.load_state_dict(ckpt["optimizer_state_dict"])
 
+    optimizer_PNODE.param_groups[0]['lr'] = args.lr
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer_PNODE, patience=2, factor=0.5, min_lr=1e-7)
     start_PNODE = time.time()
     for itr in range(curr_iter, args.niters + 1):
         for inner, (indices, u_data, u_target, t_data, t_target) in enumerate(
@@ -486,11 +490,13 @@ if __name__ == "__main__":
                         + [torch.std(torch.abs(pred_u_PNODE - u_target)).cpu()]
                     )
                 avg_test_loss = sum(loss_PNODE_array[-ntests:]) / ntests
+                scheduler.step(avg_test_loss)
                 print(
-                    "PNODE: Iter {:05d} | Train Time {:.6f} | Avg Test Loss {:.6f}".format(
+                    "PNODE: Iter {:05d} | Train Time {:.3f} | Avg Test Loss {:.6f} | LR {:.3e}".format(
                         itr,
                         end_PNODE - start_PNODE,
                         avg_test_loss,
+                        optimizer_PNODE.param_groups[0]['lr'],
                     )
                 )
                 if avg_test_loss < best_loss:
