@@ -11,7 +11,7 @@ class PCShell:
         self._ksp.setType("hpddm")
         self._ksp.setOperators(A)
         self._ksp.setOptionsPrefix("pnode_inner_")
-        self._ksp.setInitialGuessNonzero(True)
+        self._ksp.getPC().setType("none")
         self._ksp.setFromOptions()
         self._use_cuda = use_cuda
         self._random = PETSc.Random()
@@ -22,7 +22,8 @@ class PCShell:
         # SNES uses a zero initial guess for KSP by default
         # We force a nonzero initial guess to circumvent the difficulty in dealing with
         # zero columns in the RHS mat when using KSPMatSolve()
-        y.setRandom(self._random)
+        if self._ksp.getInitialGuessNonzero():
+            y.setRandom(self._random)
         if self._use_cuda:
             xhdl = x.getCUDAHandle("r")
             yhdl = y.getCUDAHandle("rw")
@@ -38,7 +39,8 @@ class PCShell:
         Y.destroy()
 
     def applyTranspose(self, pc, x, y):
-        y.setRandom(self._random)
+        if self._ksp.getInitialGuessNonzero():
+            y.setRandom(self._random)
         if self._use_cuda:
             xhdl = x.getCUDAHandle("r")
             yhdl = y.getCUDAHandle("rw")

@@ -13,11 +13,11 @@ with open(data_path, "rb") as file:
     del data
 
 for N_plot in [1000, 10000, 100000]:
-    u_plot = u[:N_plot,:]
+    u_plot = u[:N_plot, :]
     # Plotting the contour plot
     fig = plt.subplots()
     # t, s = np.meshgrid(np.arange(dim)*dt, np.array(range(N))+1)
-    n, s = np.meshgrid(np.arange(N_plot), np.array(range(dim))+1)
+    n, s = np.meshgrid(np.arange(N_plot), np.array(range(dim)) + 1)
     plt.contourf(n, s, np.transpose(u_plot), 15, cmap=plt.get_cmap("seismic"))
     plt.colorbar()
     plt.xlabel(r"$x$")
@@ -26,11 +26,11 @@ for N_plot in [1000, 10000, 100000]:
     plt.close()
 
 for N_plot in [1000, 10000, 100000]:
-    u_plot = u[-N_plot:,:]
+    u_plot = u[-N_plot:, :]
     # Plotting the contour plot
     fig = plt.subplots()
     # t, s = np.meshgrid(np.arange(N_plot)*dt, np.array(range(N))+1)
-    n, s = np.meshgrid(np.arange(N_plot), np.array(range(dim))+1)
+    n, s = np.meshgrid(np.arange(N_plot), np.array(range(dim)) + 1)
     plt.contourf(n, s, np.transpose(u_plot), 15, cmap=plt.get_cmap("seismic"))
     plt.colorbar()
     plt.xlabel(r"$x$")

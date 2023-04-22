@@ -2,6 +2,8 @@
 ########################################
 # Example of usage:
 #   python3 KS.py --double_prec --implicit_form -ts_trajectory_type memory --normalize minmax
+# IMEX:
+#   python3 KS.py -ts_trajectory_type memory --normalize minmax --pnode_model imex --petsc_ts_adapt -ts_adapt_type none --batch_size 512 -pnode_inner_ksp_hpddm_type bgmres
 # Prerequisites:
 #   pnode petsc4py scipy matplotlib torch tensorboardX
 
@@ -64,7 +66,9 @@ args, unknown = parser.parse_known_args()
 
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-initial_state = torch.tensor([[1.0, 0.0, 0.0]], dtype=torch.float64 if args.double_prec else torch.float32)
+initial_state = torch.tensor(
+    [[1.0, 0.0, 0.0]], dtype=torch.float64 if args.double_prec else torch.float32
+)
 if not args.petsc_ts_adapt:
     unknown.append("-ts_adapt_type")
     unknown.append("none")  # disable adaptor in PETSc
@@ -361,6 +365,7 @@ if __name__ == "__main__":
             imex_form=True,
             func2=funcEX_PNODE,
             batch_size=args.batch_size,
+            # matrixfree_solve=False,
         )
         params = list(funcIM_PNODE.parameters()) + list(funcEX_PNODE.parameters())
         optimizer_PNODE = optim.AdamW(params, lr=args.lr)
@@ -380,6 +385,7 @@ if __name__ == "__main__":
             imex_form=True,
             func2=funcEX_PNODE,
             batch_size=args.batch_size,
+            # matrixfree_solve=False,
         )
     else:
         if args.double_prec:
@@ -438,9 +444,12 @@ if __name__ == "__main__":
         func_PNODE.load_state_dict(ckpt["func_state_dict"])
         optimizer_PNODE.load_state_dict(ckpt["optimizer_state_dict"])
 
-    optimizer_PNODE.param_groups[0]['lr'] = args.lr
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer_PNODE, patience=2, factor=0.5, min_lr=1e-7)
+    optimizer_PNODE.param_groups[0]["lr"] = args.lr
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer_PNODE, patience=2, factor=0.5, min_lr=1e-7
+    )
     start_PNODE = time.time()
+    # torch.cuda.profiler.cudart().cudaProfilerStart()
     for itr in range(curr_iter, args.niters + 1):
         for inner, (indices, u_data, u_target, t_data, t_target) in enumerate(
             trainloader
@@ -496,7 +505,7 @@ if __name__ == "__main__":
                         itr,
                         end_PNODE - start_PNODE,
                         avg_test_loss,
-                        optimizer_PNODE.param_groups[0]['lr'],
+                        optimizer_PNODE.param_groups[0]["lr"],
                     )
                 )
                 if avg_test_loss < best_loss:
@@ -539,3 +548,4 @@ if __name__ == "__main__":
                     )
                 ii += 1
                 start_PNODE = time.time()
+    # torch.cuda.profiler.cudart().cudaProfilerStop()
