@@ -13,11 +13,13 @@ class PCShell:
         self._ksp.setOperators(A)
         self._ksp.setOptionsPrefix("pnode_inner_")
         self._ksp.getPC().setType("none")
+        self._ksp.setHPDDMType(PETSc.KSP.HPDDMType.BGMRES)
+        self._ksp.setErrorIfNotConverged(True)
         self._ksp.setFromOptions()
         self._use_cuda = use_cuda
         self._random = PETSc.Random()
         self._random.create(PETSc.COMM_WORLD)
-        self._random.setInterval([0, 0.001])
+        self._random.setInterval([-0.1, 0.1])
 
     def apply(self, pc, x, y):
         # SNES uses a zero initial guess for KSP by default
