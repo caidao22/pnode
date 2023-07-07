@@ -96,37 +96,37 @@ class Lambda(nn.Module):
         return torch.stack((f1, f2, f3), -1)
 
 
-class LambdaEX(nn.Module):
-    def __init__(self):
-        super(LambdaEX, self).__init__()
-        self.k = nn.Parameter(
-            torch.tensor([0.05, 4e7, 2e4], requires_grad=True, dtype=torch.float64)
-        )
-
-    def forward(self, t, y):
-        k1 = self.k[0]
-        k2 = self.k[1]
-        k3 = self.k[2]
-        f1 = -k1 * y[0] + k3 * y[1] * y[2]
-        f2 = torch.tensor(0)
-        f3 = k2 * y[1] ** 2
-        return torch.stack((f1, f2, f3), -1)
-
-
 class LambdaIM(nn.Module):
     def __init__(self):
         super(LambdaIM, self).__init__()
-        self.k = nn.Parameter(
-            torch.tensor([0.05, 4e7, 2e4], requires_grad=True, dtype=torch.float64)
+        self.k1 = nn.Parameter(
+            torch.tensor([0.05], dtype=torch.float64)
+        )
+        self.k3 = nn.Parameter(
+            torch.tensor([2e4], dtype=torch.float64)
         )
 
     def forward(self, t, y):
-        k1 = self.k[0]
-        k2 = self.k[1]
-        k3 = self.k[2]
-        f1 = torch.tensor(0)
-        f2 = k1 * y[0] - k3 * y[1] * y[2] - k2 * y[1] ** 2
-        f3 = torch.tensor(0)
+        k1 = self.k1[0]
+        k3 = self.k3[0]
+        f1 = -k1 * y[0] + k3 * y[1] * y[2]
+        f2 = k1 * y[0] - k3 * y[1] * y[2]
+        f3 = torch.tensor(0, device=device, dtype=torch.float64)
+        return torch.stack((f1, f2, f3), -1)
+
+
+class LambdaEX(nn.Module):
+    def __init__(self):
+        super(LambdaEX, self).__init__()
+        self.k2 = nn.Parameter(
+            torch.tensor([4e7], dtype=torch.float64)
+        )
+
+    def forward(self, t, y):
+        k2 = self.k2[0]
+        f1 = torch.tensor(0, device=device, dtype=torch.float64)
+        f2 = - k2 * y[1] ** 2
+        f3 = k2 * y[1] ** 2
         return torch.stack((f1, f2, f3), -1)
 
 
@@ -148,9 +148,9 @@ def test_petsc_implicit_odesolver():
         implicit_form=True,
     )
     pred_y_validate = ode_validate.odeint_adjoint(true_y0, t)
-    loss = torch.mean(torch.abs(pred_y_validate - true_y)).cpu()
+    loss = torch.mean(torch.abs(pred_y_validate - true_y))
     loss.backward()
-    loss_std = torch.std(torch.abs(pred_y_validate - true_y)).cpu()
+    loss_std = torch.std(torch.abs(pred_y_validate - true_y))
     print("Loss {:g} | Loss std {:g}".format(loss, loss_std))
     for p in func_validate.parameters():
         print(p.grad)
@@ -173,16 +173,16 @@ def test_petsc_imex_odesolver():
         func2=funcEX_validate,
     )
     pred_y_validate = ode_validate.odeint_adjoint(true_y0, t)
-    loss = torch.mean(torch.abs(pred_y_validate - true_y)).cpu()
+    loss = torch.mean(torch.abs(pred_y_validate - true_y))
     loss.backward()
-    loss_std = torch.std(torch.abs(pred_y_validate - true_y)).cpu()
+    loss_std = torch.std(torch.abs(pred_y_validate - true_y))
     print("Loss {:g} | Loss std {:g}".format(loss, loss_std))
     for p in funcEX_validate.parameters():
         print(p.grad)
     for p in funcIM_validate.parameters():
         print(p.grad)
-    assert loss.item() == pytest.approx(1.85e-6, abs=1e-6)
-    assert loss_std.item() == pytest.approx(3.36e-6, abs=1e-6)
+    assert loss.item() == pytest.approx(4.58e-6, abs=1e-6)
+    assert loss_std.item() == pytest.approx(8.43e-6, abs=1e-6)
 
 
 if __name__ == "__main__":
