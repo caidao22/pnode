@@ -1,6 +1,7 @@
 import petsc4py
 from petsc4py import PETSc
 
+_dump_data_when_ksp_fails = False # for debugging only
 
 class PCShell:
     def __init__(self, A, m, n, use_cuda):
@@ -35,6 +36,12 @@ class PCShell:
             X = PETSc.Mat().createDense([self._n, self._m], array=x.array_r)
             Y = PETSc.Mat().createDense([self._n, self._m], array=y.array)
         self._ksp.matSolve(X, Y)
+        if _dump_data_when_ksp_fails and not self._ksp.is_converged:
+           A, _ = self._ksp.getOperators()
+           viewer = PETSc.Viewer().createBinary('A_mat', 'w')
+           A.view(viewer)
+           viewer = PETSc.Viewer().createBinary('rhs_mat', 'w')
+           X.view(viewer)
         X.destroy()
         Y.destroy()
 
