@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 ########################################
 # Example of usage:
-#   python3 KS.py --double_prec --implicit_form -ts_trajectory_type memory --normalize minmax
+#   python3 KS.py --double_prec --implicit_form -ts_trajectory_type memory
 # IMEX:
-#   python3 KS.py -ts_trajectory_type memory --normalize minmax --pnode_model imex --petsc_ts_adapt -ts_adapt_type none --batch_size 512 -pnode_inner_ksp_hpddm_type bgmres
+#   python3 KS.py -ts_trajectory_type memory --pnode_model imex --petsc_ts_adapt -ts_adapt_type none --batch_size 512
+#   python3 KS.py -ts_trajectory_type memory --pnode_model imex --petsc_ts_adapt -ts_adapt_type none --batch_size 512 -pnode_inner_ksp_hpddm_type gmres
 # Prerequisites:
 #   pnode petsc4py scipy matplotlib torch tensorboardX
 
@@ -13,7 +14,6 @@ import argparse
 import time
 import numpy as np
 import h5py
-from tensorboardX import SummaryWriter
 import pickle
 import torch
 import torch.optim as optim
@@ -27,6 +27,7 @@ matplotlib.rc("font", size=22)
 matplotlib.rc("axes", titlesize=22)
 matplotlib.use("Agg")
 sys.path.append("../")
+import utils.datatools as udt
 parser = argparse.ArgumentParser("KS")
 parser.add_argument(
     "--pnode_model",
@@ -56,6 +57,8 @@ parser.add_argument("--train_dir", type=str, metavar="PATH", default="./train_re
 parser.add_argument("--hotstart", action="store_true")
 parser.add_argument("--petsc_ts_adapt", action="store_true")
 parser.add_argument("--lr", type=float, default=5e-3)
+parser.add_argument("--tb_log", action="store_true")
+parser.add_argument("--use_hpddm", action="store_true")
 args, unknown = parser.parse_known_args()
 
 # Set these random seeds, so everything can be reproduced.
@@ -63,7 +66,6 @@ args, unknown = parser.parse_known_args()
 # torch.manual_seed(args.seed)
 # torch.backends.cudnn.deterministic = True
 # torch.backends.cudnn.benchmark = False
-
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 initial_state = torch.tensor(
@@ -85,10 +87,10 @@ if not args.petsc_ts_adapt:
     )
     step_size = (t_traj[1:] - t_traj[:-1]).tolist()
 else:
-    step_size = 0.25
+    step_size = 0.25*4
 
 
-def get_data(stride=1):
+def get_data(spatial_stride=1, temporal_stride=1):
     train_data_path = "./training_data_N100000.pickle"
     test_data_path = "./testing_data_N100000.pickle"
 
@@ -99,9 +101,9 @@ def get_data(stride=1):
         N_train, dim = np.shape(input_sequence)
         # N_train = 1000
         dt = data["dt"]
-        initial_state_train = torch.from_numpy(input_sequence[0, stride // 2 :: stride])
-        u_train = input_sequence[:N_train, stride // 2 :: stride]
-        t_train = dt * np.linspace(0, N_train - 1, N_train)
+        initial_state_train = torch.from_numpy(input_sequence[0, spatial_stride // 2 :: spatial_stride])
+        u_train = input_sequence[:N_train:temporal_stride, spatial_stride // 2 :: spatial_stride]
+        t_train = dt * np.linspace(0, N_train - 1, N_train)[:N_train:temporal_stride]
         del data
     with open(test_data_path, "rb") as file:
         data = pickle.load(file)
@@ -109,16 +111,16 @@ def get_data(stride=1):
         N_test, dim = np.shape(input_sequence)
         N_test = 2500
         dt = data["dt"]
-        initial_state_test = torch.from_numpy(input_sequence[0, stride // 2 :: stride])
-        u_test = input_sequence[:N_test, stride // 2 :: stride]
-        t_test = dt * np.linspace(0, N_test - 1, N_test)
+        initial_state_test = torch.from_numpy(input_sequence[0, spatial_stride // 2 :: spatial_stride])
+        u_test = input_sequence[:N_test:temporal_stride, spatial_stride // 2 :: spatial_stride]
+        t_test = dt * np.linspace(0, N_test - 1, N_test)[:N_test:temporal_stride]
         del data
     trainloader = DataLoader(
         DistFuncDataset(u_train, t_train, args.double_prec),
         batch_size=args.batch_size,
         shuffle=False,
         pin_memory=True,
-        num_workers=1,
+        num_workers=0,
         drop_last=True,
     )
     testloader = DataLoader(
@@ -126,7 +128,7 @@ def get_data(stride=1):
         batch_size=args.batch_size,
         shuffle=False,
         pin_memory=True,
-        num_workers=1,
+        num_workers=0,
         drop_last=True,
     )
     print("Finished loading data")
@@ -185,7 +187,7 @@ def split_and_preprocess(
                 batch_size=args.batch_size,
                 shuffle=True,
                 pin_memory=True,
-                num_workers=1,
+                num_workers=0,
             )
         elif "test" in name:
             testloader = DataLoader(
@@ -193,7 +195,7 @@ def split_and_preprocess(
                 batch_size=args.batch_size,
                 shuffle=True,
                 pin_memory=True,
-                num_workers=1,
+                num_workers=0,
             )
 
     if write:
@@ -203,8 +205,9 @@ def split_and_preprocess(
 
 
 initial_state_train, initial_state_test, trainloader, testloader = get_data(
-    stride=8
-)  # reduce doe from 512 to 64
+    spatial_stride=8,
+    temporal_stride=32,
+)  # reduce dof from 512 to 64
 
 
 def makedirs(dirname):
@@ -334,7 +337,9 @@ if __name__ == "__main__":
     ii = 0
     if not os.path.exists(args.train_dir):
         os.mkdir(args.train_dir)
-    writer = SummaryWriter(args.train_dir)
+    if args.tb_log:
+        from tensorboardX import SummaryWriter
+        writer = SummaryWriter(args.train_dir)
 
     ode_PNODE = petsc_adjoint.ODEPetsc()
     if args.pnode_model == "mlp":
@@ -365,7 +370,8 @@ if __name__ == "__main__":
             imex_form=True,
             func2=funcEX_PNODE,
             batch_size=args.batch_size,
-            # matrixfree_solve=False,
+            use_hpddm=args.use_hpddm,
+            matrixfree_hpddm=False,
         )
         params = list(funcIM_PNODE.parameters()) + list(funcEX_PNODE.parameters())
         optimizer_PNODE = optim.AdamW(params, lr=args.lr)
@@ -385,7 +391,8 @@ if __name__ == "__main__":
             imex_form=True,
             func2=funcEX_PNODE,
             batch_size=args.batch_size,
-            # matrixfree_solve=False,
+            use_hpddm=args.use_hpddm,
+            matrixfree_hpddm=False,
         )
     else:
         if args.double_prec:
@@ -397,7 +404,7 @@ if __name__ == "__main__":
                 args.batch_size,
                 *initial_state_train.shape,
                 dtype=torch.float64 if args.double_prec else torch.float32,
-                device=device
+                device=device,
             ),
             func_PNODE,
             step_size=step_size,
@@ -429,7 +436,9 @@ if __name__ == "__main__":
     curr_iter = 1
     best_loss = float("inf")
 
+    stdoutmode = "w+"
     if args.hotstart:
+        stdoutmode = "a+"
         ckpt_path = os.path.join(args.train_dir, "best.pth")
         ckpt = torch.load(ckpt_path)
         if args.normalize != ckpt["normalize_option"]:
@@ -441,8 +450,14 @@ if __name__ == "__main__":
         curr_iter = ckpt["iter"] + 1
         ii = ckpt["ii"] + 1
         best_loss = ckpt["best_loss"]
-        func_PNODE.load_state_dict(ckpt["func_state_dict"])
+        if args.pnode_model == "imex":
+            funcIM_PNODE.load_state_dict(ckpt["funcIM_state_dict"])
+            funcEX_PNODE.load_state_dict(ckpt["funcEX_state_dict"])
+        else:
+            func_PNODE.load_state_dict(ckpt["func_state_dict"])
         optimizer_PNODE.load_state_dict(ckpt["optimizer_state_dict"])
+    stdoutfile = open(args.train_dir+'/stdout.log', stdoutmode)
+    sys.stdout = udt.Tee(sys.stdout, stdoutfile)
 
     optimizer_PNODE.param_groups[0]["lr"] = args.lr
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -456,25 +471,27 @@ if __name__ == "__main__":
         ):
             u_data, u_target = u_data.to(device), u_target.to(device)
             optimizer_PNODE.zero_grad()
-            pred_u_PNODE = ode_PNODE.odeint_adjoint(u_data, torch.tensor([0.25]))
+            pred_u_PNODE = ode_PNODE.odeint_adjoint(u_data, torch.tensor([0.25*4]))
             loss_PNODE = torch.mean(torch.abs(pred_u_PNODE - u_target))
             loss_std_PNODE = torch.std(torch.abs(pred_u_PNODE - u_target))
             loss_PNODE.backward()
             optimizer_PNODE.step()
 
-            total_norm = 0
             if args.pnode_model == "imex":
                 params = list(funcIM_PNODE.parameters()) + list(
                     funcEX_PNODE.parameters()
                 )
             else:
                 params = func_PNODE.parameters()
-            for p in params:
-                param_norm = p.grad.detach().data.norm(2)
-                total_norm += param_norm.item() ** 2
-            total_norm = total_norm**0.5
-            writer.add_scalar("Train/Loss", loss_PNODE.item(), itr * 50000)
-            writer.add_scalar("Train/Gradient", total_norm, itr * 50000)
+            if args.tb_log:
+                total_norm = 0
+                for p in params:
+                    param_norm = p.grad.detach().data.norm(2)
+                    total_norm += param_norm.item() ** 2
+                    print(p.grad)
+                total_norm = total_norm**0.5
+                writer.add_scalar("Train/Loss", loss_PNODE.item(), itr * 50000)
+                writer.add_scalar("Train/Gradient", total_norm, itr * 50000)
 
         if itr % args.test_freq == 0:
             end_PNODE = time.time()
@@ -486,7 +503,7 @@ if __name__ == "__main__":
                     u_data, u_target = u_data.to(device), u_target.to(device)
                     ntests += 1
                     pred_u_PNODE = ode_test_PNODE.odeint_adjoint(
-                        u_data, torch.tensor([0.25])
+                        u_data, torch.tensor([0.25*4])
                     )
                     loss_PNODE_array = (
                         loss_PNODE_array
@@ -549,3 +566,5 @@ if __name__ == "__main__":
                 ii += 1
                 start_PNODE = time.time()
     # torch.cuda.profiler.cudart().cudaProfilerStop()
+    del udt.Tee
+    stdoutfile.close()

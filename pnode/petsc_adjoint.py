@@ -4,7 +4,6 @@ import torch.utils.dlpack as dlpack
 from .misc import _flatten, _flatten_convert_none_to_zeros
 import petsc4py
 from petsc4py import PETSc
-from .petsc_batched_linearsolve import PCShell
 
 # def _mat_shift_and_scale(A, X, Y):
 #     Y.scale(A.vscale)
@@ -285,7 +284,7 @@ class IJacPShell:
 
     def _vjp(self, x, y):
         """
-        When the IJacobian is provided explicitly (matrixfree_solve=False), vjp_params cannot
+        When the IJacobian is provided explicitly (use_hpddm=True and matrixfree_hpddm=False), vjp_params cannot
         be obtained from IJac's multTranspose(). So we need to compute it here.
         """
         f_params = tuple(
@@ -305,19 +304,19 @@ class IJacPShell:
         if self.ode_.use_dlpack:
             Y.attachDLPackInfo(self.ode_.adj_p[0])
             y = dlpack.from_dlpack(Y)
-            if not self.ode_.matrixfree_solve:
+            if self.ode_.use_hpddm and not self.ode_.matrixfree_hpddm:
                 X.attachDLPackInfo(self.ode_.cached_U)
                 self.x_tensor = dlpack.from_dlpack(X.toDLPack(mode="r"))
         else:
             y = Y.array
-            if not self.ode_.matrixfree_solve:
+            if self.ode_.use_hpddm and not self.ode_.matrixfree_hpddm:
                 self.x_tensor = torch.from_numpy(
                     X.array_r.reshape(self.ode_.tensor_size)
                 ).to(device=self.ode_.device, dtype=self.ode_.tensor_dtype)
         f_params = tuple(
             filter(lambda p: p.requires_grad, self.ode_.funcIM.parameters())
         )
-        if not self.ode_.matrixfree_solve:
+        if self.ode_.use_hpddm and not self.ode_.matrixfree_hpddm:
             self._vjp(self.x_tensor, y)
         vjp_params = _flatten_convert_none_to_zeros(self.ode_.vjp_params, f_params)
         if self.ode_.imex:
@@ -384,7 +383,8 @@ class ODEPetsc(object):
         self.imex = None
         self.use_dlpack = True
         self.use_cuda = False
-        self.matrixfree_solve = True
+        self.use_hpddm = False
+        self.matrixfree_hpddm = True
         self.shift = None
         self.innerkspmat = None
         self.jacobianIM = None
@@ -545,7 +545,8 @@ class ODEPetsc(object):
         imex_form=False,
         func2=None,
         batch_size=1,
-        matrixfree_solve=True,
+        use_hpddm=False,
+        matrixfree_hpddm=True,
     ):
         """
         Set up the PETSc ODE solver before it is used.
@@ -577,12 +578,14 @@ class ODEPetsc(object):
                            where func will be treated implicitly and func2 explicitly.
             func2: An additional callback function. In the IMEX setting, this function is treated explicitly while func() is treated implicitly.In non-IMEX settings, this function is ignored.
             batch_size: The batch size. Needed only when imex_form=True. It is used to inform HPDDM about the block size.
-            matrixfree_solve: Specifies whether to use matrix-free solvers (for implicit time integration methods). If not, explicit Jacobians are assembled by using functorch's jacrev().
+            use_hpddm: Specifies whether to use MatSolve to solve a linear system with multiple RHS. If not, gmres will be used by default.
+            matrixfree_hpddm: Specifies whether to use matrix-free solvers (for implicit time integration methods). If not, explicit Jacobians are assembled by using functorch's jacrev().
         """
         if imex_form and func2 is None:
             raise ValueError("func2 must be provided to enable imex_form=True")
         self.imex = imex_form
-        self.matrixfree_solve = matrixfree_solve
+        self.use_hpddm = use_hpddm
+        self.matrixfree_hpddm = matrixfree_hpddm
         tensor_dtype = u_tensor.dtype
         tensor_size = u_tensor.size()
         device = u_tensor.device
@@ -669,34 +672,37 @@ class ODEPetsc(object):
                 IJac.setUp()
                 IJac.assemble()
                 self.ts.setIJacobian(self.evalIJacobian, IJac)
-                # set up for HPDDM
                 self.use_cuda = True if device.type == "cuda" else False
-                if self.matrixfree_solve:
-                    innerkspmat = PETSc.Mat().createPython(
-                        [n // batch_size, n // batch_size], shell
+
+                if self.use_hpddm:
+                    from .petsc_hpddm_linearsolve import PCShell
+                    # set up for HPDDM
+                    if self.matrixfree_hpddm:
+                        innerkspmat = PETSc.Mat().createPython(
+                            [n // batch_size, n // batch_size], shell
+                        )
+                        self.innerkspmat = None
+                    else:
+                        innerkspmat = PETSc.Mat().createDense(
+                            [n // batch_size, n // batch_size]
+                        )
+                        if self.use_cuda:
+                            innerkspmat.setType("densecuda")
+                        self.innerkspmat = innerkspmat
+                    snes = self.ts.getSNES()
+                    ksp = snes.getKSP()
+                    pc = PETSc.PC()
+                    pcshell = PCShell(
+                        innerkspmat, batch_size, n // batch_size, self.use_cuda
                     )
-                    self.innerkspmat = None
-                else:
-                    innerkspmat = PETSc.Mat().createDense(
-                        [n // batch_size, n // batch_size]
-                    )
+                    pc.createPython(pcshell, PETSc.COMM_WORLD)
+                    kmat, _ = ksp.getOperators()
                     if self.use_cuda:
-                        innerkspmat.setType("densecuda")
-                    self.innerkspmat = innerkspmat
-                snes = self.ts.getSNES()
-                ksp = snes.getKSP()
-                pc = PETSc.PC()
-                pcshell = PCShell(
-                    innerkspmat, batch_size, n // batch_size, self.use_cuda
-                )
-                pc.createPython(pcshell, PETSc.COMM_WORLD)
-                kmat, _ = ksp.getOperators()
-                if self.use_cuda:
-                    # kmat.setVecType('cuda')
-                    innerkspmat.setVecType("cuda")
-                pc.setOperators(kmat)
-                ksp.setType(PETSc.KSP.Type.PREONLY)
-                ksp.setPC(pc)
+                        # kmat.setVecType('cuda')
+                        innerkspmat.setVecType("cuda")
+                    pc.setOperators(kmat)
+                    ksp.setType(PETSc.KSP.Type.PREONLY)
+                    ksp.setPC(pc)
             if not implicit_form or imex_form:
                 self.f_tensor = u_tensor.detach().clone()
                 if use_dlpack:
@@ -773,7 +779,7 @@ class ODEPetsc(object):
         Returns
             solution: Tensor, where the frist dimension corresponds to the input time points.
         """
-        if not self.matrixfree_solve:
+        if self.use_hpddm and not self.matrixfree_hpddm:
             self.reset_jacobianIM = True  # recompute the jacobian for functionIM since the parameters have been updated
         # self.u0 = u0.clone().detach() # clone a new tensor that will be used by PETSc
         if self.use_dlpack:
