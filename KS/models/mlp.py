@@ -7,13 +7,15 @@ class ODEFunc(nn.Module):
         self.input_size = input_size
         self.hidden = hidden
         self.net = nn.Sequential(
-            nn.Linear(self.input_size, self.hidden, bias=False),
+            nn.Linear(self.input_size, self.hidden),
             nn.Sigmoid(),
-            nn.Linear(self.hidden, self.hidden, bias=False),
+            nn.Linear(self.hidden, self.hidden),
             nn.Sigmoid(),
-            nn.Linear(self.hidden, self.hidden, bias=False),
+            nn.Linear(self.hidden, self.hidden),
             nn.Sigmoid(),
-            nn.Linear(self.hidden, self.input_size, bias=False),
+            nn.Linear(self.hidden, self.hidden),
+            nn.Sigmoid(),
+            nn.Linear(self.hidden, self.input_size),
         )
         for m in self.net.modules():
             if isinstance(m, nn.Linear):

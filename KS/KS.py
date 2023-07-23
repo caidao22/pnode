@@ -3,8 +3,10 @@
 # Example of usage:
 #   python3 KS.py --double_prec --implicit_form -ts_trajectory_type memory
 # IMEX:
-#   python3 KS.py -ts_trajectory_type memory --pnode_model imex --petsc_ts_adapt -ts_adapt_type none --batch_size 512
-#   python3 KS.py -ts_trajectory_type memory --pnode_model imex --petsc_ts_adapt -ts_adapt_type none --batch_size 512 -pnode_inner_ksp_hpddm_type gmres
+#   python3 KS.py -ts_trajectory_type memory --pnode_model imex -ts_adapt_type none --batch_size 512
+#   python3 KS.py -ts_trajectory_type memory --pnode_model imex -ts_adapt_type none --batch_size 512 -pnode_inner_ksp_hpddm_type gmres
+# best parameters:
+#   python3 KS.py --pnode_model imex -ts_arkimex_type ars122 -ts_trajectory_type memory --niters 5000 --double_prec --time_window_size 10 --lr 1e-3 -ts_adapt_type none -snes_type ksponly -ksp_rtol 1e-9
 # Prerequisites:
 #   pnode petsc4py scipy matplotlib torch tensorboardX
 
@@ -42,11 +44,13 @@ parser.add_argument(
     default="cn",
 )
 parser.add_argument("--normalize", type=str, choices=["minmax", "mean"], default=None)
-parser.add_argument("--data_size", type=int, default=40)
 parser.add_argument("--steps_per_data_point", type=int, default=1)
-parser.add_argument("--batch_size", type=int, default=40)
+parser.add_argument("--data_size", type=int, default=0)
+parser.add_argument("--batch_size", type=int, default=128)
+parser.add_argument("--time_window_size", type=int, default=4)
+parser.add_argument("--time_window_endpoint", action='store_true') # predict only the endpoint of the time window
 parser.add_argument("--niters", type=int, default=10000)
-parser.add_argument("--test_freq", type=int, default=10)
+parser.add_argument("--validate_freq", type=int, default=10)
 parser.add_argument("--viz", action="store_true")
 parser.add_argument("--gpu", type=int, default=0)
 parser.add_argument("--adjoint", action="store_true")
@@ -55,8 +59,8 @@ parser.add_argument("--double_prec", action="store_true")
 parser.add_argument("--seed", type=int, default=0)
 parser.add_argument("--train_dir", type=str, metavar="PATH", default="./train_results")
 parser.add_argument("--hotstart", action="store_true")
-parser.add_argument("--petsc_ts_adapt", action="store_true")
-parser.add_argument("--lr", type=float, default=5e-3)
+default_lr = 5e-3
+parser.add_argument("--lr", type=float, default=default_lr)
 parser.add_argument("--tb_log", action="store_true")
 parser.add_argument("--use_hpddm", action="store_true")
 args, unknown = parser.parse_known_args()
@@ -71,60 +75,44 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 initial_state = torch.tensor(
     [[1.0, 0.0, 0.0]], dtype=torch.float64 if args.double_prec else torch.float32
 )
-if not args.petsc_ts_adapt:
-    unknown.append("-ts_adapt_type")
-    unknown.append("none")  # disable adaptor in PETSc
-    t_traj = torch.cat(
-        (
-            torch.tensor([0]),
-            torch.logspace(
-                start=-5,
-                end=2,
-                steps=args.data_size
-                + (args.data_size - 1) * (args.steps_per_data_point - 1),
-            ),
-        )
-    )
-    step_size = (t_traj[1:] - t_traj[:-1]).tolist()
-else:
-    step_size = 0.25*4
+step_size = 0.25
 
 
-def get_data(spatial_stride=1, temporal_stride=1):
-    train_data_path = "./training_data_N100000.pickle"
-    test_data_path = "./testing_data_N100000.pickle"
+def get_data(data_size=None, spatial_stride=1, temporal_stride=1, time_window_size=1, time_window_endpoint=False):
+    train_data_path = "./training_data_L22_S64_N100000.pickle"
 
     with open(train_data_path, "rb") as file:
         # Pickle the "data" dictionary using the highest protocol available.
         data = pickle.load(file)
-        input_sequence = data["train_input_sequence"]
-        N_train, dim = np.shape(input_sequence)
-        # N_train = 1000
+        input_sequence = data["train_input_sequence"][:data_size]
+        N, dim = np.shape(input_sequence)
+        N_train = int(0.8*N)
         dt = data["dt"]
         initial_state_train = torch.from_numpy(input_sequence[0, spatial_stride // 2 :: spatial_stride])
         u_train = input_sequence[:N_train:temporal_stride, spatial_stride // 2 :: spatial_stride]
         t_train = dt * np.linspace(0, N_train - 1, N_train)[:N_train:temporal_stride]
-        del data
-    with open(test_data_path, "rb") as file:
-        data = pickle.load(file)
-        input_sequence = data["test_input_sequence"]
-        N_test, dim = np.shape(input_sequence)
-        N_test = 2500
-        dt = data["dt"]
-        initial_state_test = torch.from_numpy(input_sequence[0, spatial_stride // 2 :: spatial_stride])
-        u_test = input_sequence[:N_test:temporal_stride, spatial_stride // 2 :: spatial_stride]
-        t_test = dt * np.linspace(0, N_test - 1, N_test)[:N_test:temporal_stride]
+        pred_time_train = dt*temporal_stride*np.arange(0, time_window_size+1, 1 if not time_window_endpoint else time_window_size)
+        pred_time_train = pred_time_train.astype(np.float64) if args.double_prec else pred_time_train.astype(np.float32)
+        print("Training data dimension: ", u_train.shape)
+        print("Training prediction time: ", pred_time_train)
+
+        N_validate = int(0.2*N) # using fewer data
+        initial_state_validate = torch.from_numpy(input_sequence[0, spatial_stride // 2 :: spatial_stride])
+        u_validate = input_sequence[:N_validate:temporal_stride, spatial_stride // 2 :: spatial_stride]
+        t_validate = dt * np.linspace(0, N_validate - 1, N_validate)[:N_validate:temporal_stride]
+        pred_time_validate = dt*temporal_stride*np.arange(0, time_window_size+1, 1 if not time_window_endpoint else time_window_size)
+        pred_time_validate = pred_time_validate.astype(np.float64) if args.double_prec else pred_time_validate.astype(np.float32)
         del data
     trainloader = DataLoader(
-        DistFuncDataset(u_train, t_train, args.double_prec),
+        DistFuncDataset(u_train, t_train, args.double_prec, time_window_size=time_window_size, time_window_endpoint=time_window_endpoint),
         batch_size=args.batch_size,
         shuffle=False,
         pin_memory=True,
         num_workers=0,
         drop_last=True,
     )
-    testloader = DataLoader(
-        DistFuncDataset(u_train, t_train, args.double_prec),
+    validateloader = DataLoader(
+        DistFuncDataset(u_train, t_train, args.double_prec, time_window_size=time_window_size, time_window_endpoint=time_window_endpoint),
         batch_size=args.batch_size,
         shuffle=False,
         pin_memory=True,
@@ -132,48 +120,53 @@ def get_data(spatial_stride=1, temporal_stride=1):
         drop_last=True,
     )
     print("Finished loading data")
-    return initial_state_train, initial_state_test, trainloader, testloader
+    return initial_state_train, initial_state_validate, trainloader, validateloader, pred_time_train, pred_time_validate
 
 
 class DistFuncDataset(Dataset):
-    def __init__(self, u_array, t_array, double_prec=True):
+    def __init__(self, u_array, t_array, double_prec=True, time_window_size=1, time_window_endpoint=False):
         if double_prec:
             self.u = torch.from_numpy(u_array).double()
             self.t = torch.from_numpy(t_array).double()
         else:
             self.u = torch.from_numpy(u_array.astype(np.float32))
             self.t = torch.from_numpy(t_array.astype(np.float32))
+        self.time_window_size = time_window_size
+        if time_window_endpoint:
+            self.start_index = time_window_size
+        else:
+            self.start_index = 1
 
     def __len__(self):
-        return len(self.u) - 1
+        return len(self.u) - self.time_window_size
 
     def __getitem__(self, index):
         a = self.u[index]
-        b = self.u[index + 1]
+        b = self.u[index+self.start_index:index+1+self.time_window_size]
         c = self.t[index]
-        d = self.t[index + 1]
+        d = self.t[index+self.start_index:index+1+self.time_window_size]
         return index, a, b, c, d
 
 
 def split_and_preprocess(
     u, t, batch_size, sizes=[0.8, 0.2], seed=42, write=False, preprocess=None
 ):
-    ## SPLIT DATA into train/val/test sets
+    ## SPLIT DATA into train/val/validate sets
     N_all = u.shape[0]
     inds = np.arange(N_all)
 
     num_train = int(np.floor(sizes[0] * N_all))
-    num_test = int(np.floor(sizes[1] * N_all))
+    num_validate = int(np.floor(sizes[1] * N_all))
     np.random.seed(seed)
     np.random.shuffle(inds)
 
     train_inds = inds[:num_train]
-    test_inds = inds[num_train:]
+    validate_inds = inds[num_train:]
 
     if write:
         fh = h5py.File("preprocessed.h5", "w")
 
-    for name, subinds in zip(["train", "test"], [train_inds, test_inds]):
+    for name, subinds in zip(["train", "validate"], [train_inds, validate_inds]):
         usub = u[subinds]
         tsub = t[subinds]
 
@@ -189,8 +182,8 @@ def split_and_preprocess(
                 pin_memory=True,
                 num_workers=0,
             )
-        elif "test" in name:
-            testloader = DataLoader(
+        elif "validate" in name:
+            validateloader = DataLoader(
                 dataset,
                 batch_size=args.batch_size,
                 shuffle=True,
@@ -201,14 +194,16 @@ def split_and_preprocess(
     if write:
         fh.close()
     del u, t
-    return trainloader, testloader
+    return trainloader, validateloader
 
 
-initial_state_train, initial_state_test, trainloader, testloader = get_data(
-    spatial_stride=8,
-    temporal_stride=32,
-)  # reduce dof from 512 to 64
-
+initial_state_train, initial_state_validate, trainloader, validateloader, pred_time_train, pred_time_validate = get_data(
+    data_size=args.data_size,
+    spatial_stride=1,
+    temporal_stride=1,
+    time_window_size=args.time_window_size,
+    time_window_endpoint=args.time_window_endpoint,
+)
 
 def makedirs(dirname):
     if not os.path.exists(dirname):
@@ -371,12 +366,12 @@ if __name__ == "__main__":
             func2=funcEX_PNODE,
             batch_size=args.batch_size,
             use_hpddm=args.use_hpddm,
-            matrixfree_hpddm=False,
+            matrixfree_hpddm=True,
         )
         params = list(funcIM_PNODE.parameters()) + list(funcEX_PNODE.parameters())
         optimizer_PNODE = optim.AdamW(params, lr=args.lr)
-        ode_test_PNODE = petsc_adjoint.ODEPetsc()
-        ode_test_PNODE.setupTS(
+        ode_validate_PNODE = petsc_adjoint.ODEPetsc()
+        ode_validate_PNODE.setupTS(
             torch.zeros(
                 args.batch_size,
                 *initial_state_train.shape,
@@ -392,7 +387,7 @@ if __name__ == "__main__":
             func2=funcEX_PNODE,
             batch_size=args.batch_size,
             use_hpddm=args.use_hpddm,
-            matrixfree_hpddm=False,
+            matrixfree_hpddm=True,
         )
     else:
         if args.double_prec:
@@ -413,8 +408,8 @@ if __name__ == "__main__":
             implicit_form=args.implicit_form,
         )
         optimizer_PNODE = optim.AdamW(func_PNODE.parameters(), lr=args.lr)
-        ode_test_PNODE = petsc_adjoint.ODEPetsc()
-        ode_test_PNODE.setupTS(
+        ode_validate_PNODE = petsc_adjoint.ODEPetsc()
+        ode_validate_PNODE.setupTS(
             torch.zeros(
                 args.batch_size,
                 *initial_state_train.shape,
@@ -428,6 +423,9 @@ if __name__ == "__main__":
             implicit_form=args.implicit_form,
         )
 
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer_PNODE, patience=5, factor=0.75, min_lr=1e-5
+    )
     end = time.time()
     time_meter = RunningAverageMeter(0.97)
     loss_meter = RunningAverageMeter(0.97)
@@ -439,7 +437,7 @@ if __name__ == "__main__":
     stdoutmode = "w+"
     if args.hotstart:
         stdoutmode = "a+"
-        ckpt_path = os.path.join(args.train_dir, "best.pth")
+        ckpt_path = os.path.join(args.train_dir, "best_float64.pth" if args.double_prec else "best_float32")
         ckpt = torch.load(ckpt_path)
         if args.normalize != ckpt["normalize_option"]:
             sys.exit(
@@ -456,13 +454,15 @@ if __name__ == "__main__":
         else:
             func_PNODE.load_state_dict(ckpt["func_state_dict"])
         optimizer_PNODE.load_state_dict(ckpt["optimizer_state_dict"])
+        scheduler.load_state_dict(ckpt["scheduler_state_dict"])
     stdoutfile = open(args.train_dir+'/stdout.log', stdoutmode)
     sys.stdout = udt.Tee(sys.stdout, stdoutfile)
 
-    optimizer_PNODE.param_groups[0]["lr"] = args.lr
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer_PNODE, patience=2, factor=0.5, min_lr=1e-7
-    )
+    if args.lr != default_lr: # reset scheduler
+        optimizer_PNODE.param_groups[0]["lr"] = args.lr
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer_PNODE, patience=5, factor=0.75, min_lr=1e-5
+        )
     start_PNODE = time.time()
     # torch.cuda.profiler.cudart().cudaProfilerStart()
     for itr in range(curr_iter, args.niters + 1):
@@ -470,10 +470,11 @@ if __name__ == "__main__":
             trainloader
         ):
             u_data, u_target = u_data.to(device), u_target.to(device)
+            u_target = u_target.movedim(1,0)
             optimizer_PNODE.zero_grad()
-            pred_u_PNODE = ode_PNODE.odeint_adjoint(u_data, torch.tensor([0.25*4]))
-            loss_PNODE = torch.mean(torch.abs(pred_u_PNODE - u_target))
-            loss_std_PNODE = torch.std(torch.abs(pred_u_PNODE - u_target))
+            pred_u_PNODE = ode_PNODE.odeint_adjoint(u_data, torch.from_numpy(pred_time_train))
+            loss_PNODE = torch.mean(torch.abs(pred_u_PNODE[1:] - u_target))
+            loss_std_PNODE = torch.std(torch.abs(pred_u_PNODE[1:] - u_target))
             loss_PNODE.backward()
             optimizer_PNODE.step()
 
@@ -493,46 +494,47 @@ if __name__ == "__main__":
                 writer.add_scalar("Train/Loss", loss_PNODE.item(), itr * 50000)
                 writer.add_scalar("Train/Gradient", total_norm, itr * 50000)
 
-        if itr % args.test_freq == 0:
+        if itr % args.validate_freq == 0:
             end_PNODE = time.time()
             with torch.no_grad():
-                ntests = 0
+                nvalidates = 0
                 for inner, (indices, u_data, u_target, t_data, t_target) in enumerate(
-                    testloader
+                    validateloader
                 ):
                     u_data, u_target = u_data.to(device), u_target.to(device)
-                    ntests += 1
-                    pred_u_PNODE = ode_test_PNODE.odeint_adjoint(
-                        u_data, torch.tensor([0.25*4])
+                    u_target = u_target.movedim(1,0)
+                    nvalidates += 1
+                    pred_u_PNODE = ode_validate_PNODE.odeint_adjoint(
+                        u_data, torch.from_numpy(pred_time_validate)
                     )
                     loss_PNODE_array = (
                         loss_PNODE_array
                         + [loss_PNODE.item()]
-                        + [torch.mean(torch.abs(pred_u_PNODE - u_target)).cpu()]
+                        + [torch.mean(torch.abs(pred_u_PNODE[1:] - u_target)).cpu()]
                     )
                     loss_std_PNODE_array = (
                         loss_std_PNODE_array
                         + [loss_std_PNODE.item()]
-                        + [torch.std(torch.abs(pred_u_PNODE - u_target)).cpu()]
+                        + [torch.std(torch.abs(pred_u_PNODE[1:] - u_target)).cpu()]
                     )
-                avg_test_loss = sum(loss_PNODE_array[-ntests:]) / ntests
-                scheduler.step(avg_test_loss)
+                avg_validate_loss = sum(loss_PNODE_array[-nvalidates:]) / nvalidates
+                scheduler.step(avg_validate_loss)
                 print(
                     "PNODE: Iter {:05d} | Train Time {:.3f} | Avg Test Loss {:.6f} | LR {:.3e}".format(
                         itr,
                         end_PNODE - start_PNODE,
-                        avg_test_loss,
+                        avg_validate_loss,
                         optimizer_PNODE.param_groups[0]["lr"],
                     )
                 )
-                if avg_test_loss < best_loss:
-                    best_loss = avg_test_loss
+                if avg_validate_loss < best_loss:
+                    best_loss = avg_validate_loss
                     new_best = True
                 else:
                     new_best = False
                 if new_best:
-                    # visualize(test_t, test_y, pred_u_PNODE, func_PNODE, ii, "PNODE")
-                    ckpt_path = os.path.join(args.train_dir, "best.pth")
+                    # visualize(validate_t, validate_y, pred_u_PNODE, func_PNODE, ii, "PNODE")
+                    ckpt_path = os.path.join(args.train_dir, "best_float64.pth" if args.double_prec else "best_float32")
                     if args.pnode_model == "imex":
                         torch.save(
                             {
@@ -542,6 +544,7 @@ if __name__ == "__main__":
                                 "funcIM_state_dict": funcIM_PNODE.state_dict(),
                                 "funcEX_state_dict": funcEX_PNODE.state_dict(),
                                 "optimizer_state_dict": optimizer_PNODE.state_dict(),
+                                "scheduler_state_dict": scheduler.state_dict(),
                                 "normalize_option": args.normalize,
                             },
                             ckpt_path,
@@ -554,12 +557,13 @@ if __name__ == "__main__":
                                 "best_loss": best_loss,
                                 "func_state_dict": func_PNODE.state_dict(),
                                 "optimizer_state_dict": optimizer_PNODE.state_dict(),
+                                "scheduler_state_dict": scheduler.state_dict(),
                                 "normalize_option": args.normalize,
                             },
                             ckpt_path,
                         )
                     print(
-                        "Saved new best results (loss={}) at Iter {}".format(
+                        "    Saved new best results (loss={:.3e}) at Iter {}".format(
                             best_loss, itr
                         )
                     )
