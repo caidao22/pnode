@@ -471,11 +471,8 @@ class ODEPetsc(object):
         # JacShell = Jac.getPythonContext()
         # JacShell.vshift = 0.0
         # JacShell.vscale = 1.0
-        if self.innerkspmat is not None and (
-            self.shift != shift or self.reset_jacobianIM
-        ):
+        if self.innerkspmat is not None and self.reset_jacobianIM:
             from torch.func import jacrev
-
             shape = self.innerkspmat.getSizes()[0]
             if self.reset_jacobianIM:
                 func_eval = self.funcIM(t, self.cached_u_tensor[0:1])
@@ -484,6 +481,8 @@ class ODEPetsc(object):
                 )
                 self.jacobianIM = jacobianIM.view(*shape)
                 self.reset_jacobianIM = False
+        if self.innerkspmat is not None and (self.reset_jacobianIM or self.shift != shift): # reshift
+            shape = self.innerkspmat.getSizes()[0]
             if self.use_dlpack:
                 innerjac_tensor = dlpack.from_dlpack(
                     self.innerkspmat
