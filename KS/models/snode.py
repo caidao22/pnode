@@ -4,7 +4,7 @@ import math
 from torch.nn import functional as F
 
 class ODEFunc(nn.Module):
-    def __init__(self, input_size=64, hidden=200):
+    def __init__(self, input_size=64, hidden=200, fixed_linear=False, dx=None):
         super(ODEFunc, self).__init__()
         self.input_size = input_size
         self.hidden = hidden
@@ -26,6 +26,11 @@ class ODEFunc(nn.Module):
                 nn.init.normal_(m.weight, mean=0.00, std=1e-4)
         for m in self.A.modules():
             nn.init.uniform_(m.weight, a=-math.sqrt(1.0 / 3.0), b=math.sqrt(1.0 / 3.0))
+        if fixed_linear:
+            # K = torch.tensor([[[-1.0/dx**4, 4.0/dx**4-1.0/dx**2, -6.0/dx**4+2.0/dx**2, 4.0/dx**4-1.0/dx**2, -1.0/dx**4]]], device="cuda:0")
+            K = torch.tensor([[[-1.0/dx**4, 4.0/dx**4, -6.0/dx**4, 4.0/dx**4, -1.0/dx**4]]], device="cuda:0")
+            print(K)
+            self.A.weight = nn.Parameter(K, requires_grad=False)
         self.nfe = 0
 
     def forward(self, t, y):

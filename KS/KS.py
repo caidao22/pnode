@@ -2,11 +2,14 @@
 ########################################
 # Example of usage:
 #   python3 KS.py --double_prec --implicit_form -ts_trajectory_type memory
-# IMEX:
-#   python3 KS.py -ts_trajectory_type memory --pnode_model imex -ts_adapt_type none --batch_size 512
-#   python3 KS.py -ts_trajectory_type memory --pnode_model imex -ts_adapt_type none --batch_size 512 -pnode_inner_ksp_hpddm_type gmres
-# best parameters:
-#   python3 KS.py --pnode_model imex -ts_arkimex_type ars122 -ts_trajectory_type memory --niters 5000 --double_prec --time_window_size 10 --lr 1e-3 -ts_adapt_type none -snes_type ksponly -ksp_rtol 1e-9
+# IMEX with PETSc linear solver:
+#   python3 KS.py --double_prec -ts_trajectory_type memory --pnode_model imex -ts_adapt_type none
+# IMEX with HPDDM linear solver:
+#   python3 KS.py --double_prec -ts_trajectory_type memory --pnode_model imex -ts_adapt_type none --linear_solver hpddm -pnode_inner_ksp_hpddm_type gmres
+# IMEX with direct linear solver:
+#   python3 KS.py --double_prec -ts_trajectory_type memory --pnode_model imex -ts_adapt_type none --linear_solver torch 
+# More advanced settings:
+#   python3 KS.py --pnode_model imex -ts_arkimex_type ars122 -ts_trajectory_type memory --niters 5000 --double_prec --time_window_size 5 --lr 1e-3 -ts_adapt_type none -snes_type ksponly -ksp_rtol 1e-9
 # Prerequisites:
 #   pnode petsc4py scipy matplotlib torch tensorboardX
 
@@ -46,6 +49,7 @@ parser.add_argument(
 parser.add_argument("--normalize", type=str, choices=["minmax", "mean"], default=None)
 parser.add_argument("--steps_per_data_point", type=int, default=1)
 parser.add_argument("--data_size", type=int, default=0)
+parser.add_argument("--data_temporal_stride", type=int, default=1)
 parser.add_argument("--batch_size", type=int, default=128)
 parser.add_argument("--time_window_size", type=int, default=4)
 parser.add_argument("--time_window_endpoint", action='store_true') # predict only the endpoint of the time window
@@ -62,7 +66,7 @@ parser.add_argument("--hotstart", action="store_true")
 default_lr = 5e-3
 parser.add_argument("--lr", type=float, default=default_lr)
 parser.add_argument("--tb_log", action="store_true")
-parser.add_argument("--use_hpddm", action="store_true")
+parser.add_argument("--linear_solver", type=str, choices=["petsc", "hpddm", "torch"], default="petsc")
 args, unknown = parser.parse_known_args()
 
 # Set these random seeds, so everything can be reproduced.
@@ -75,7 +79,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 initial_state = torch.tensor(
     [[1.0, 0.0, 0.0]], dtype=torch.float64 if args.double_prec else torch.float32
 )
-step_size = 0.25
+step_size = 0.25*args.steps_per_data_point
 
 
 def get_data(data_size=None, spatial_stride=1, temporal_stride=1, time_window_size=1, time_window_endpoint=False):
@@ -119,7 +123,7 @@ def get_data(data_size=None, spatial_stride=1, temporal_stride=1, time_window_si
         num_workers=0,
         drop_last=True,
     )
-    print("Finished loading data")
+    print("Finished loading data", flush=True)
     return initial_state_train, initial_state_validate, trainloader, validateloader, pred_time_train, pred_time_validate
 
 
@@ -200,7 +204,7 @@ def split_and_preprocess(
 initial_state_train, initial_state_validate, trainloader, validateloader, pred_time_train, pred_time_validate = get_data(
     data_size=args.data_size,
     spatial_stride=1,
-    temporal_stride=1,
+    temporal_stride=args.data_temporal_stride,
     time_window_size=args.time_window_size,
     time_window_endpoint=args.time_window_endpoint,
 )
@@ -321,20 +325,23 @@ class RunningAverageMeter(object):
 
 
 if __name__ == "__main__":
+
+    if not os.path.exists(args.train_dir):
+        os.mkdir(args.train_dir)
+    stdoutmode = "a+"
+    stdoutfile = open(args.train_dir+'/stdout.log', stdoutmode)
+    sys.stdout = udt.Tee(sys.stdout, stdoutfile)
+    print(' '.join(sys.argv))
+    if args.tb_log:
+        from tensorboardX import SummaryWriter
+        writer = ummaryWriter(args.train_dir)
+
     # petsc4py_path = os.path.join(os.environ['PETSC_DIR'],os.environ['PETSC_ARCH'],'lib')
     # sys.path.append(petsc4py_path)
     import petsc4py
-
     sys.argv = [sys.argv[0]] + unknown
     petsc4py.init(sys.argv)
     from pnode import petsc_adjoint
-
-    ii = 0
-    if not os.path.exists(args.train_dir):
-        os.mkdir(args.train_dir)
-    if args.tb_log:
-        from tensorboardX import SummaryWriter
-        writer = SummaryWriter(args.train_dir)
 
     ode_PNODE = petsc_adjoint.ODEPetsc()
     if args.pnode_model == "mlp":
@@ -348,7 +355,7 @@ if __name__ == "__main__":
             funcIM_PNODE = ODEFuncIM().double().to(device)
             funcEX_PNODE = ODEFuncEX().double().to(device)
         else:
-            funcIM_PNODE = ODEFuncIM().to(device)
+            funcIM_PNODE = ODEFuncIM(fixed_linear=True,dx=0.34375).to(device)
             funcEX_PNODE = ODEFuncEX().to(device)
         ode_PNODE.setupTS(
             torch.zeros(
@@ -365,8 +372,8 @@ if __name__ == "__main__":
             imex_form=True,
             func2=funcEX_PNODE,
             batch_size=args.batch_size,
-            use_hpddm=args.use_hpddm,
-            matrixfree_hpddm=True,
+            linear_solver=args.linear_solver,
+            matrixfree_jacobian=True,
         )
         params = list(funcIM_PNODE.parameters()) + list(funcEX_PNODE.parameters())
         optimizer_PNODE = optim.AdamW(params, lr=args.lr)
@@ -386,8 +393,8 @@ if __name__ == "__main__":
             imex_form=True,
             func2=funcEX_PNODE,
             batch_size=args.batch_size,
-            use_hpddm=args.use_hpddm,
-            matrixfree_hpddm=True,
+            linear_solver=args.linear_solver,
+            matrixfree_jacobian=True,
         )
     else:
         if args.double_prec:
@@ -424,7 +431,7 @@ if __name__ == "__main__":
         )
 
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer_PNODE, patience=5, factor=0.75, min_lr=1e-5
+        optimizer_PNODE, patience=5, factor=0.75, min_lr=1e-6
     )
     end = time.time()
     time_meter = RunningAverageMeter(0.97)
@@ -434,10 +441,9 @@ if __name__ == "__main__":
     curr_iter = 1
     best_loss = float("inf")
 
-    stdoutmode = "w+"
+    ii = 0
     if args.hotstart:
-        stdoutmode = "a+"
-        ckpt_path = os.path.join(args.train_dir, "best_float64.pth" if args.double_prec else "best_float32")
+        ckpt_path = os.path.join(args.train_dir, "best_float64.pth" if args.double_prec else "best_float32.pth")
         ckpt = torch.load(ckpt_path)
         if args.normalize != ckpt["normalize_option"]:
             sys.exit(
@@ -455,8 +461,6 @@ if __name__ == "__main__":
             func_PNODE.load_state_dict(ckpt["func_state_dict"])
         optimizer_PNODE.load_state_dict(ckpt["optimizer_state_dict"])
         scheduler.load_state_dict(ckpt["scheduler_state_dict"])
-    stdoutfile = open(args.train_dir+'/stdout.log', stdoutmode)
-    sys.stdout = udt.Tee(sys.stdout, stdoutfile)
 
     if args.lr != default_lr: # reset scheduler
         optimizer_PNODE.param_groups[0]["lr"] = args.lr
@@ -534,7 +538,7 @@ if __name__ == "__main__":
                     new_best = False
                 if new_best:
                     # visualize(validate_t, validate_y, pred_u_PNODE, func_PNODE, ii, "PNODE")
-                    ckpt_path = os.path.join(args.train_dir, "best_float64.pth" if args.double_prec else "best_float32")
+                    ckpt_path = os.path.join(args.train_dir, "best_float64.pth" if args.double_prec else "best_float32.pth")
                     if args.pnode_model == "imex":
                         torch.save(
                             {

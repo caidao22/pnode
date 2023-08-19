@@ -113,7 +113,7 @@ if __name__ == "__main__":
             funcIM_PNODE = ODEFuncIM().double().to(device)
             funcEX_PNODE = ODEFuncEX().double().to(device)
         else:
-            funcIM_PNODE = ODEFuncIM().to(device)
+            funcIM_PNODE = ODEFuncIM(fixed_linear=True,dx=0.34375).to(device)
             funcEX_PNODE = ODEFuncEX().to(device)
         ode_PNODE.setupTS(
             torch.zeros(
@@ -159,6 +159,7 @@ if __name__ == "__main__":
     else:
         func_PNODE.load_state_dict(state["func_state_dict"])
 
+    t_pred = t_pred.astype(np.float64) if args.double_prec else t_pred.astype(np.float32)
     with torch.no_grad():
         pred_u_PNODE = ode_PNODE.odeint_adjoint(initial_state, torch.from_numpy(t_pred))
 

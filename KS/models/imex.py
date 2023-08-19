@@ -4,11 +4,16 @@ import math
 
 
 class ODEFuncIM(nn.Module):
-    def __init__(self):
+    def __init__(self, fixed_linear=False, dx=0):
         super(ODEFuncIM, self).__init__()
         self.A = nn.Conv1d(in_channels=1, out_channels=1, kernel_size=5, padding='same', padding_mode='circular', bias=False)
         for m in self.A.modules():
             nn.init.uniform_(m.weight, a=-math.sqrt(1.0 / 3.0), b=math.sqrt(1.0 / 3.0))
+        if fixed_linear:
+            # K = torch.tensor([[[-1.0/dx**4, 4.0/dx**4-1.0/dx**2, -6.0/dx**4+2.0/dx**2, 4.0/dx**4-1.0/dx**2, -1.0/dx**4]]], device="cuda:0")
+            K = torch.tensor([[[-1.0/dx**4, 4.0/dx**4, -6.0/dx**4, 4.0/dx**4, -1.0/dx**4]]], device="cuda:0")
+            print(K)
+            self.A.weight = nn.Parameter(K, requires_grad=False)
         self.nfe = 0
 
     def forward(self, t, y):

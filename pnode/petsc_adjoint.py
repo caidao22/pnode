@@ -284,45 +284,48 @@ class IJacPShell:
 
     def _vjp(self, x, y):
         """
-        When the IJacobian is provided explicitly (use_hpddm=True and matrixfree_hpddm=False), vjp_params cannot
+        When the IJacobian is provided explicitly (matrixfree_jacobian=False), vjp_params cannot
         be obtained from IJac's multTranspose(). So we need to compute it here.
         """
         f_params = tuple(
             filter(lambda p: p.requires_grad, self.ode_.funcIM.parameters())
         )
-        with torch.set_grad_enabled(True):
-            func_eval = self.ode_.funcIM(self.ode_.t, self.ode_.cached_u_tensor)
-            self.ode_.vjp_params = torch.autograd.grad(
-                func_eval,
-                f_params,
-                x,
-                allow_unused=True,
-                retain_graph=True,
-            )
+        if not f_params:
+            self.ode_.vjp_params = []
+        else:
+            with torch.set_grad_enabled(True):
+                func_eval = self.ode_.funcIM(self.ode_.t, self.ode_.cached_u_tensor)
+                self.ode_.vjp_params = torch.autograd.grad(
+                    func_eval,
+                    f_params,
+                    x,
+                    allow_unused=True,
+                    retain_graph=True,
+                )
 
     def multTranspose(self, A, X, Y):
         if self.ode_.use_dlpack:
             Y.attachDLPackInfo(self.ode_.adj_p[0])
             y = dlpack.from_dlpack(Y)
-            if self.ode_.use_hpddm and not self.ode_.matrixfree_hpddm:
+            if not self.ode_.matrixfree_jacobian:
                 X.attachDLPackInfo(self.ode_.cached_U)
                 self.x_tensor = dlpack.from_dlpack(X.toDLPack(mode="r"))
         else:
             y = Y.array
-            if self.ode_.use_hpddm and not self.ode_.matrixfree_hpddm:
+            if not self.ode_.matrixfree_jacobian:
                 self.x_tensor = torch.from_numpy(
                     X.array_r.reshape(self.ode_.tensor_size)
                 ).to(device=self.ode_.device, dtype=self.ode_.tensor_dtype)
         f_params = tuple(
             filter(lambda p: p.requires_grad, self.ode_.funcIM.parameters())
         )
-        if self.ode_.use_hpddm and not self.ode_.matrixfree_hpddm:
+        if not self.ode_.matrixfree_jacobian:
             self._vjp(self.x_tensor, y)
         vjp_params = _flatten_convert_none_to_zeros(self.ode_.vjp_params, f_params)
         if self.ode_.imex:
             vjp_params = torch.cat(
                 (
-                    vjp_params,
+                    vjp_params.to(self.ode_.device),
                     torch.zeros(self.ode_.npEX).to(
                         device=self.ode_.device, dtype=self.ode_.tensor_dtype
                     ),
@@ -383,12 +386,12 @@ class ODEPetsc(object):
         self.imex = None
         self.use_dlpack = True
         self.use_cuda = False
-        self.use_hpddm = False
-        self.matrixfree_hpddm = True
+        self.linear_solver = None
         self.shift = None
         self.innerkspmat = None
         self.jacobianIM = None
-        self.reset_jacobianIM = True
+        self.reset_jacobianIM = False
+        self.matrixfree_jacobian = True
 
     def evalRHSFunction(self, ts, t, U, F):
         if self.use_dlpack:
@@ -474,13 +477,12 @@ class ODEPetsc(object):
         if self.innerkspmat is not None and self.reset_jacobianIM:
             from torch.func import jacrev
             shape = self.innerkspmat.getSizes()[0]
-            if self.reset_jacobianIM:
-                func_eval = self.funcIM(t, self.cached_u_tensor[0:1])
-                jacobianIM = jacrev(self.funcIM, argnums=1)(
-                    t, self.cached_u_tensor[0:1]
-                )
-                self.jacobianIM = jacobianIM.view(*shape)
-                self.reset_jacobianIM = False
+            func_eval = self.funcIM(t, self.cached_u_tensor[0:1])
+            jacobianIM = jacrev(self.funcIM, argnums=1)(
+                t, self.cached_u_tensor[0:1]
+            )
+            self.jacobianIM = jacobianIM.view(*shape)
+            self.reset_jacobianIM = False
         if self.innerkspmat is not None and (self.reset_jacobianIM or self.shift != shift): # reshift
             shape = self.innerkspmat.getSizes()[0]
             if self.use_dlpack:
@@ -544,8 +546,9 @@ class ODEPetsc(object):
         imex_form=False,
         func2=None,
         batch_size=1,
-        use_hpddm=False,
-        matrixfree_hpddm=True,
+        linear_solver="petsc",
+        fixed_jacobian=False,
+        matrixfree_jacobian=True,
     ):
         """
         Set up the PETSc ODE solver before it is used.
@@ -577,14 +580,20 @@ class ODEPetsc(object):
                            where func will be treated implicitly and func2 explicitly.
             func2: An additional callback function. In the IMEX setting, this function is treated explicitly while func() is treated implicitly.In non-IMEX settings, this function is ignored.
             batch_size: The batch size. Needed only when imex_form=True. It is used to inform HPDDM about the block size.
-            use_hpddm: Specifies whether to use MatSolve to solve a linear system with multiple RHS. If not, gmres will be used by default.
-            matrixfree_hpddm: Specifies whether to use matrix-free solvers (for implicit time integration methods). If not, explicit Jacobians are assembled by using functorch's jacrev().
+            linear_solver: Specifies which linear solver to use. Options include "petsc", "hpddm", "torch". PETSc uses gmres by default. Choosing PETSc sets matrixfree_jacobian to True automatically. HPDDM uses MatSolve to solve a linear system with multiple RHS. Torch uses direct LU solvers.
+            fixed_jacobian: Specifies if the Jacobian is constant across ODE solves. If true, the Jacobian is built explicitly instead of using a shell, which means matrixfree_jacobian is set to False regardless of user input.
+            matrixfree_jacobian: Specifies whether to use matrix-free Jacobian (for implicit time integration methods). If not, explicit Jacobians are assembled by using functorch's jacrev() at the beginning of each ODE solver and they are assumed to be constant during the entire time integration process. By default matrixfree is True. This option could be ignored depending on the settings of linear_solver and fixed_jacobian.
         """
         if imex_form and func2 is None:
             raise ValueError("func2 must be provided to enable imex_form=True")
         self.imex = imex_form
-        self.use_hpddm = use_hpddm
-        self.matrixfree_hpddm = matrixfree_hpddm
+        self.linear_solver = linear_solver
+        self.fixed_jacobian = fixed_jacobian
+        if linear_solver == "petsc":
+            matrixfree_jacobian = True
+        if fixed_jacobian or linear_solver == "torch":
+            matrixfree_jacobian = False
+        self.matrixfree_jacobian = matrixfree_jacobian
         tensor_dtype = u_tensor.dtype
         tensor_size = u_tensor.size()
         device = u_tensor.device
@@ -595,7 +604,7 @@ class ODEPetsc(object):
                 self.funcEX = func2
                 self.flat_params = _flatten(
                     filter(lambda p: p.requires_grad, func.parameters())
-                )
+                ).to(device)
                 self.npIM = self.flat_params.numel()
                 self.flat_params = torch.cat(
                     (
@@ -673,10 +682,13 @@ class ODEPetsc(object):
                 self.ts.setIJacobian(self.evalIJacobian, IJac)
                 self.use_cuda = True if device.type == "cuda" else False
 
-                if self.use_hpddm:
-                    from .petsc_hpddm_linearsolve import PCShell
+                if self.linear_solver != "petsc":
+                    if self.linear_solver == "hpddm":
+                        from .hpddm_linearsolve import PCShell
+                    if self.linear_solver == "torch":
+                        from .torch_linearsolve import PCShell
                     # set up for HPDDM
-                    if self.matrixfree_hpddm:
+                    if self.matrixfree_jacobian:
                         innerkspmat = PETSc.Mat().createPython(
                             [n // batch_size, n // batch_size], shell
                         )
@@ -702,6 +714,7 @@ class ODEPetsc(object):
                     pc.setOperators(kmat)
                     ksp.setType(PETSc.KSP.Type.PREONLY)
                     ksp.setPC(pc)
+
             if not implicit_form or imex_form:
                 self.f_tensor = u_tensor.detach().clone()
                 if use_dlpack:
@@ -778,9 +791,12 @@ class ODEPetsc(object):
         Returns
             solution: Tensor, where the frist dimension corresponds to the input time points.
         """
-        if self.use_hpddm and not self.matrixfree_hpddm:
+        if (self.fixed_jacobian and self.reset_jacobianIM==False) or (not self.fixed_jacobian and not self.matrixfree_jacobian):
             self.reset_jacobianIM = True  # recompute the jacobian for functionIM since the parameters have been updated
         # self.u0 = u0.clone().detach() # clone a new tensor that will be used by PETSc
+        if self.linear_solver == "torch" and self.reset_jacobianIM:
+            pcshell = self.ts.getSNES().getKSP().getPC().getPythonContext()
+            pcshell.reset_factor()
         if self.use_dlpack:
             self.u0 = (
                 u0.detach().clone()
