@@ -2,7 +2,7 @@ import torch.nn as nn
 
 
 class ODEFunc(nn.Module):
-    def __init__(self, input_size=64, hidden=200):
+    def __init__(self, input_size=64, hidden=104):
         super(ODEFunc, self).__init__()
         self.input_size = input_size
         self.hidden = hidden

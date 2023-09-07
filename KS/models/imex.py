@@ -10,9 +10,9 @@ class ODEFuncIM(nn.Module):
         for m in self.A.modules():
             nn.init.uniform_(m.weight, a=-math.sqrt(1.0 / 3.0), b=math.sqrt(1.0 / 3.0))
         if fixed_linear:
-            # K = torch.tensor([[[-1.0/dx**4, 4.0/dx**4-1.0/dx**2, -6.0/dx**4+2.0/dx**2, 4.0/dx**4-1.0/dx**2, -1.0/dx**4]]], device="cuda:0")
-            K = torch.tensor([[[-1.0/dx**4, 4.0/dx**4, -6.0/dx**4, 4.0/dx**4, -1.0/dx**4]]], device="cuda:0")
-            print(K)
+            K = torch.tensor([[[-1.0/dx**4, 4.0/dx**4-1.0/dx**2, -6.0/dx**4+2.0/dx**2, 4.0/dx**4-1.0/dx**2, -1.0/dx**4]]], device="cuda:0")
+            # K = torch.tensor([[[-1.0/dx**4, 4.0/dx**4, -6.0/dx**4, 4.0/dx**4, -1.0/dx**4]]], device="cuda:0")
+            # print(K)
             self.A.weight = nn.Parameter(K, requires_grad=False)
         self.nfe = 0
 
@@ -24,7 +24,7 @@ class ODEFuncIM(nn.Module):
 
 
 class ODEFuncEX(nn.Module):
-    def __init__(self, input_size=64, hidden=200):
+    def __init__(self, input_size=64, hidden=104):
         super(ODEFuncEX, self).__init__()
         self.input_size = input_size
         self.hidden = hidden
@@ -47,4 +47,4 @@ class ODEFuncEX(nn.Module):
 
     def forward(self, t, y):
         self.nfe += 1
-        return self.F(y)
+        return -self.F(y)

@@ -79,16 +79,19 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 initial_state = torch.tensor(
     [[1.0, 0.0, 0.0]], dtype=torch.float64 if args.double_prec else torch.float32
 )
-step_size = 0.25*args.steps_per_data_point
+step_size = 0.2*args.steps_per_data_point
 
 
-def get_data(data_size=None, spatial_stride=1, temporal_stride=1, time_window_size=1, time_window_endpoint=False):
-    train_data_path = "./training_data_L22_S64_N100000.pickle"
-
+def get_data(data_size=0, spatial_stride=1, temporal_stride=1, time_window_size=1, time_window_endpoint=False):
+    # train_data_path = "./training_data_L22_S64_N100000.pickle"
+    train_data_path = "training_data_L22_S512_N50000.pickle"
     with open(train_data_path, "rb") as file:
         # Pickle the "data" dictionary using the highest protocol available.
         data = pickle.load(file)
-        input_sequence = data["train_input_sequence"][:data_size]
+        if data_size == 0:
+            input_sequence = data["train_input_sequence"][:]
+        else:
+            input_sequence = data["train_input_sequence"][:data_size]
         N, dim = np.shape(input_sequence)
         N_train = int(0.8*N)
         dt = data["dt"]
@@ -124,7 +127,8 @@ def get_data(data_size=None, spatial_stride=1, temporal_stride=1, time_window_si
         drop_last=True,
     )
     print("Finished loading data", flush=True)
-    return initial_state_train, initial_state_validate, trainloader, validateloader, pred_time_train, pred_time_validate
+    dx = 22/dim
+    return initial_state_train, initial_state_validate, trainloader, validateloader, pred_time_train, pred_time_validate, dim, dx
 
 
 class DistFuncDataset(Dataset):
@@ -201,7 +205,7 @@ def split_and_preprocess(
     return trainloader, validateloader
 
 
-initial_state_train, initial_state_validate, trainloader, validateloader, pred_time_train, pred_time_validate = get_data(
+initial_state_train, initial_state_validate, trainloader, validateloader, pred_time_train, pred_time_validate, dim, dx = get_data(
     data_size=args.data_size,
     spatial_stride=1,
     temporal_stride=args.data_temporal_stride,
@@ -334,7 +338,7 @@ if __name__ == "__main__":
     print(' '.join(sys.argv))
     if args.tb_log:
         from tensorboardX import SummaryWriter
-        writer = ummaryWriter(args.train_dir)
+        writer = SummaryWriter(args.train_dir)
 
     # petsc4py_path = os.path.join(os.environ['PETSC_DIR'],os.environ['PETSC_ARCH'],'lib')
     # sys.path.append(petsc4py_path)
@@ -352,11 +356,11 @@ if __name__ == "__main__":
         from models.imex import ODEFuncIM, ODEFuncEX
 
         if args.double_prec:
-            funcIM_PNODE = ODEFuncIM().double().to(device)
-            funcEX_PNODE = ODEFuncEX().double().to(device)
+            funcIM_PNODE = ODEFuncIM(fixed_linear=True,dx=dx).double().to(device)
+            funcEX_PNODE = ODEFuncEX(input_size=dim, hidden=dim*13//8).double().to(device)
         else:
-            funcIM_PNODE = ODEFuncIM(fixed_linear=True,dx=0.34375).to(device)
-            funcEX_PNODE = ODEFuncEX().to(device)
+            funcIM_PNODE = ODEFuncIM(fixed_linear=True,dx=dx).to(device)
+            funcEX_PNODE = ODEFuncEX(input_size=dim, hidden=dim*13//8).to(device)
         ode_PNODE.setupTS(
             torch.zeros(
                 args.batch_size,
@@ -398,9 +402,9 @@ if __name__ == "__main__":
         )
     else:
         if args.double_prec:
-            func_PNODE = ODEFunc().double().to(device)
+            func_PNODE = ODEFunc(input_size=dim, hidden=dim*13//8, fixed_linear=True, dx=dx).double().to(device)
         else:
-            func_PNODE = ODEFunc().to(device)
+            func_PNODE = ODEFunc(input_size=dim, hidden=dim*13//8, fixed_linear=True, dx=dx).to(device)
         ode_PNODE.setupTS(
             torch.zeros(
                 args.batch_size,
@@ -465,7 +469,7 @@ if __name__ == "__main__":
     if args.lr != default_lr: # reset scheduler
         optimizer_PNODE.param_groups[0]["lr"] = args.lr
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer_PNODE, patience=5, factor=0.75, min_lr=1e-5
+            optimizer_PNODE, patience=5, factor=0.75, min_lr=1e-7
         )
     start_PNODE = time.time()
     # torch.cuda.profiler.cudart().cudaProfilerStart()

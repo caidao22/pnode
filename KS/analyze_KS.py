@@ -6,24 +6,28 @@ import pickle
 import argparse
 import torch
 
-data_path = "./training_data_L22_S64_N100000.pickle"
+data_path = "training_data_L22_S512_N50000.pickle"
+temporal_stride = 100
 spatial_stride = 1
 L = 22
+step_size = 0.2
+
 with open(data_path, "rb") as file:
     # Pickle the "data" dictionary using the highest protocol available.
     data = pickle.load(file)
-    u = data["train_input_sequence"][:, spatial_stride // 2 :: spatial_stride]
+    u = data["train_input_sequence"][::temporal_stride, spatial_stride // 2 :: spatial_stride]
     u = u[0:]
     initial_state = torch.from_numpy(u[0])
     N, dim = np.shape(u)
-    dt = data["dt"]
-    t_pred = dt * np.linspace(0, N - 1, N)[:2001]
+    # dt = data["dt"]
+    dt = step_size
+    t_pred = dt * np.linspace(0, N - 1, N)[:]
     print(t_pred)
     del data
 
 
 def plot_first(u, name, figpath="./"):
-    for N_plot in [200, 1000, 2000]:
+    for N_plot in [250, 500]:
         u_plot = u[:N_plot, :]
         # Plotting the contour plot
         fig = plt.subplots()
@@ -40,7 +44,7 @@ def plot_first(u, name, figpath="./"):
 
 
 def plot_last(u, name, figpath="./"):
-    for N_plot in [1000, 2000]:
+    for N_plot in [250, 500]:
         u_plot = u[-N_plot:, :]
         # Plotting the contour plot
         fig = plt.subplots()
@@ -80,8 +84,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--implicit_form", action="store_true")
     parser.add_argument("--double_prec", action="store_true")
-    parser.add_argument("--use_hpddm", action="store_true")
-
+    parser.add_argument("--linear_solver", type=str, choices=["petsc", "hpddm", "torch"], default="petsc")
     args, unknown = parser.parse_known_args()
 
     if os.path.exists(args.modelpath):
@@ -110,11 +113,11 @@ if __name__ == "__main__":
         from models.imex import ODEFuncIM, ODEFuncEX
 
         if args.double_prec:
-            funcIM_PNODE = ODEFuncIM().double().to(device)
-            funcEX_PNODE = ODEFuncEX().double().to(device)
+            funcIM_PNODE = ODEFuncIM(fixed_linear=True,dx=L/dim).double().to(device)
+            funcEX_PNODE = ODEFuncEX(input_size=dim, hidden=dim*13//8).double().to(device)
         else:
-            funcIM_PNODE = ODEFuncIM(fixed_linear=True,dx=0.34375).to(device)
-            funcEX_PNODE = ODEFuncEX().to(device)
+            funcIM_PNODE = ODEFuncIM(fixed_linear=True,dx=L/dim).to(device)
+            funcEX_PNODE = ODEFuncEX(input_size=dim, hidden=dim*13//8).to(device)
         ode_PNODE.setupTS(
             torch.zeros(
                 1,
@@ -123,21 +126,21 @@ if __name__ == "__main__":
                 device=device,
             ),
             funcIM_PNODE,
-            step_size=dt,
+            step_size=step_size,
             method="imex",
             enable_adjoint=False,
             implicit_form=args.implicit_form,
             imex_form=True,
             func2=funcEX_PNODE,
             batch_size=1,
-            use_hpddm=args.use_hpddm,
-            matrixfree_hpddm=False,
+            linear_solver=args.linear_solver,
+            matrixfree_jacobian=True,
         )
     else:
         if args.double_prec:
-            func_PNODE = ODEFunc().double().to(device)
+            func_PNODE = ODEFunc(input_size=dim, hidden=dim*13//8, fixed_linear=True, dx=L/dim).double().to(device)
         else:
-            func_PNODE = ODEFunc().to(device)
+            func_PNODE = ODEFunc(input_size=dim, hidden=dim*13//8, fixed_linear=True, dx=L/dim).to(device)
         ode_PNODE.setupTS(
             torch.zeros(
                 1,
@@ -146,10 +149,12 @@ if __name__ == "__main__":
                 device=device,
             ),
             func_PNODE,
-            step_size=dt,
+            step_size=step_size,
             method=args.pnode_method,
             enable_adjoint=False,
             implicit_form=args.implicit_form,
+            linear_solver=args.linear_solver,
+            matrixfree_jacobian=True,
         )
 
     state = torch.load(modelpath, map_location=device)
@@ -161,10 +166,13 @@ if __name__ == "__main__":
 
     t_pred = t_pred.astype(np.float64) if args.double_prec else t_pred.astype(np.float32)
     with torch.no_grad():
+        import time
+        start = time.time()
         pred_u_PNODE = ode_PNODE.odeint_adjoint(initial_state, torch.from_numpy(t_pred))
-
-    plot_first(pred_u_PNODE.squeeze(1).cpu().numpy(), "ml", figpath=figpath)
+        end = time.time()
+        print("Inference time: {:f}s".format(end-start))
+    # plot_first(pred_u_PNODE.squeeze(1).cpu().numpy(), "ml", figpath=figpath)
     # plot_last(pred_u_PNODE.numpy(), "ml", figpath=figpath)
-    plot_first(u, "gt", figpath=figpath)
+    # plot_first(u, "gt", figpath=figpath)
     # plot_last(u, "gt", figpath=figpath)
 
