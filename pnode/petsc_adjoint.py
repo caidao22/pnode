@@ -476,14 +476,15 @@ class ODEPetsc(object):
         # JacShell.vscale = 1.0
         if self.innerkspmat is not None and self.reset_jacobianIM:
             from torch.func import jacrev
+
             shape = self.innerkspmat.getSizes()[0]
             func_eval = self.funcIM(t, self.cached_u_tensor[0:1])
-            jacobianIM = jacrev(self.funcIM, argnums=1)(
-                t, self.cached_u_tensor[0:1]
-            )
+            jacobianIM = jacrev(self.funcIM, argnums=1)(t, self.cached_u_tensor[0:1])
             self.jacobianIM = jacobianIM.view(*shape)
             self.reset_jacobianIM = False
-        if self.innerkspmat is not None and (self.reset_jacobianIM or self.shift != shift): # reshift
+        if self.innerkspmat is not None and (
+            self.reset_jacobianIM or self.shift != shift
+        ):  # reshift
             shape = self.innerkspmat.getSizes()[0]
             if self.use_dlpack:
                 innerjac_tensor = dlpack.from_dlpack(
@@ -791,7 +792,9 @@ class ODEPetsc(object):
         Returns
             solution: Tensor, where the frist dimension corresponds to the input time points.
         """
-        if (self.fixed_jacobian and self.reset_jacobianIM==False) or (not self.fixed_jacobian and not self.matrixfree_jacobian):
+        if (self.fixed_jacobian and self.reset_jacobianIM == False) or (
+            not self.fixed_jacobian and not self.matrixfree_jacobian
+        ):
             self.reset_jacobianIM = True  # recompute the jacobian for functionIM since the parameters have been updated
         # self.u0 = u0.clone().detach() # clone a new tensor that will be used by PETSc
         if self.linear_solver == "torch" and self.reset_jacobianIM:
