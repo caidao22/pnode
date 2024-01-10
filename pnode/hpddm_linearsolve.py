@@ -4,7 +4,7 @@ from petsc4py import PETSc
 _dump_data_when_ksp_fails = False # for debugging only
 
 class PCShell:
-    def __init__(self, A, m, n, use_cuda):
+    def __init__(self, A, m, n, use_cuda, always_update_jacobian):
         self._m = m
         self._n = n
         self._ksp = PETSc.KSP()

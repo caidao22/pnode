@@ -481,10 +481,9 @@ class ODEPetsc(object):
             func_eval = self.funcIM(t, self.cached_u_tensor[0:1])
             jacobianIM = jacrev(self.funcIM, argnums=1)(t, self.cached_u_tensor[0:1])
             self.jacobianIM = jacobianIM.view(*shape)
-            self.reset_jacobianIM = False
-        if self.innerkspmat is not None and (
-            self.reset_jacobianIM or self.shift != shift
-        ):  # reshift
+            if not self.always_update_jacobian: # nonlinear solves requires updating JacobianIM at each evaluation
+                self.reset_jacobianIM = False
+        if self.innerkspmat is not None and (self.reset_jacobianIM or self.shift != shift): # reshift
             shape = self.innerkspmat.getSizes()[0]
             if self.use_dlpack:
                 innerjac_tensor = dlpack.from_dlpack(
@@ -548,8 +547,9 @@ class ODEPetsc(object):
         func2=None,
         batch_size=1,
         linear_solver="petsc",
-        fixed_jacobian=False,
+        fixed_jacobian_across_solves=False,
         matrixfree_jacobian=True,
+        always_update_jacobian=False,
     ):
         """
         Set up the PETSc ODE solver before it is used.
@@ -582,19 +582,21 @@ class ODEPetsc(object):
             func2: An additional callback function. In the IMEX setting, this function is treated explicitly while func() is treated implicitly.In non-IMEX settings, this function is ignored.
             batch_size: The batch size. Needed only when imex_form=True. It is used to inform HPDDM about the block size.
             linear_solver: Specifies which linear solver to use. Options include "petsc", "hpddm", "torch". PETSc uses gmres by default. Choosing PETSc sets matrixfree_jacobian to True automatically. HPDDM uses MatSolve to solve a linear system with multiple RHS. Torch uses direct LU solvers.
-            fixed_jacobian: Specifies if the Jacobian is constant across ODE solves. If true, the Jacobian is built explicitly instead of using a shell, which means matrixfree_jacobian is set to False regardless of user input.
-            matrixfree_jacobian: Specifies whether to use matrix-free Jacobian (for implicit time integration methods). If not, explicit Jacobians are assembled by using functorch's jacrev() at the beginning of each ODE solver and they are assumed to be constant during the entire time integration process. By default matrixfree is True. This option could be ignored depending on the settings of linear_solver and fixed_jacobian.
+            fixed_jacobian_across_solves: Specifies if the Jacobian is constant across ODE solves. If true, the Jacobian is built explicitly instead of using a shell, which means matrixfree_jacobian is set to False regardless of user input.
+            matrixfree_jacobian: Specifies whether to use matrix-free Jacobian (for implicit time integration methods). If not, explicit Jacobians are assembled by using functorch's jacrev() at the beginning of each ODE solver and they are assumed to be constant during the entire time integration process. By default matrixfree is True. This option could be ignored depending on the settings of linear_solver and fixed_jacobian_across_solves.
+            always_update_jacobian: A flag for updating the Jacobian at each evaluation of IJacobian. This needs to be turned on when using a fully implicit method for a nonlinear problem.
         """
         if imex_form and func2 is None:
             raise ValueError("func2 must be provided to enable imex_form=True")
         self.imex = imex_form
         self.linear_solver = linear_solver
-        self.fixed_jacobian = fixed_jacobian
+        self.fixed_jacobian_across_solves = fixed_jacobian_across_solves
         if linear_solver == "petsc":
             matrixfree_jacobian = True
-        if fixed_jacobian or linear_solver == "torch":
+        if fixed_jacobian_across_solves or linear_solver == "torch":
             matrixfree_jacobian = False
         self.matrixfree_jacobian = matrixfree_jacobian
+        self.always_update_jacobian = always_update_jacobian
         tensor_dtype = u_tensor.dtype
         tensor_size = u_tensor.size()
         device = u_tensor.device
@@ -705,7 +707,7 @@ class ODEPetsc(object):
                     ksp = snes.getKSP()
                     pc = PETSc.PC()
                     pcshell = PCShell(
-                        innerkspmat, batch_size, n // batch_size, self.use_cuda
+                        innerkspmat, batch_size, n // batch_size, self.use_cuda, self.always_update_jacobian
                     )
                     pc.createPython(pcshell, PETSc.COMM_WORLD)
                     kmat, _ = ksp.getOperators()
@@ -792,9 +794,7 @@ class ODEPetsc(object):
         Returns
             solution: Tensor, where the frist dimension corresponds to the input time points.
         """
-        if (self.fixed_jacobian and self.reset_jacobianIM == False) or (
-            not self.fixed_jacobian and not self.matrixfree_jacobian
-        ):
+        if (self.fixed_jacobian_across_solves and self.reset_jacobianIM==False) or (not self.fixed_jacobian_across_solves and not self.matrixfree_jacobian):
             self.reset_jacobianIM = True  # recompute the jacobian for functionIM since the parameters have been updated
         # self.u0 = u0.clone().detach() # clone a new tensor that will be used by PETSc
         if self.linear_solver == "torch" and self.reset_jacobianIM:

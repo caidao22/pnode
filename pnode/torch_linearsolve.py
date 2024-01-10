@@ -4,15 +4,16 @@ import petsc4py
 from petsc4py import PETSc
 
 class PCShell:
-    def __init__(self, A, m, n, use_cuda):
+    def __init__(self, A, m, n, use_cuda, always_update_jacobian):
         self._m = m # batch dimension
         self._n = n # data size
         self._A = A
+        self._always_update_jacobian = always_update_jacobian
         self._LU = None
         self._pivots = None
 
     def get_factor(self):
-        if self._LU is None:
+        if self._LU is None or self._always_update_jacobian:
             A_tensor = dlpack.from_dlpack(self._A)
             self._LU, self._pivots = torch.linalg.lu_factor(A_tensor)
         return self._LU, self._pivots
