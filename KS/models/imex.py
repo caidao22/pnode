@@ -42,7 +42,7 @@ class ODEFuncEX(nn.Module):
         )
         for m in self.F.modules():
             if isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, mean=0.00, std=0.01)
+                nn.init.normal_(m.weight, mean=0, std=0.01)
         self.nfe = 0
 
     def forward(self, t, y):
