@@ -18,7 +18,7 @@ cd petsc
 ```
 Here minimal configure options are provided. Several other widely used options are listed below:
 
- - `--with-cude=1` Use CUDA if an NVIDIA GPU is available.
+ - `--with-cuda=1` Use CUDA if an NVIDIA GPU is available.
  - `--with-fc=0` Disable Fortran if you do not have a Fortran compiler or do not need Fortran.
  - `--with-precision=single` Build PETSc with single precision (without his option, PETSc uses double precision).
 Note that `PETSC_ARCH` takes of your choice. One can create many different versions of PETSc, each of which can have a different list of options and be given a different name specified by `PETSC_ARCH`.
