@@ -71,7 +71,6 @@ class RHSJacShell:
                 (self.ode_.cached_u_tensor,) + f_params,
                 x_tensor,
                 allow_unused=True,
-                retain_graph=True,
             )
         # autograd.grad returns None if no gradient, set to zero.
         # vjp_u = tuple(torch.zeros_like(y_) if vjp_u_ is None else vjp_u_ for vjp_u_, y_ in zip(vjp_u, y))
@@ -189,7 +188,6 @@ class IJacShell:
                 (self.ode_.cached_u_tensor,) + f_params,
                 x,
                 allow_unused=True,
-                retain_graph=True,
             )
         # autograd.grad returns None if no gradient, set to zero.
         # vjp_u = tuple(torch.zeros_like(y_) if vjp_u_ is None else vjp_u_ for vjp_u_, y_ in zip(vjp_u, y))
@@ -300,7 +298,6 @@ class IJacPShell:
                     f_params,
                     x,
                     allow_unused=True,
-                    retain_graph=True,
                 )
 
     def multTranspose(self, A, X, Y):
