@@ -6,7 +6,7 @@
 #   python3 train-Cifar10.py -ts_adapt_type none -ts_trajectory_type memory --num_epochs 200 --method euler
 #
 # Prerequisites:
-#   pnode torchvision tensorboardX pytorch_model_summary petsc4py
+#   pnode torchvision tensorboardX torchsummary nvidia-ml-py3 petsc4py
 
 import torch
 import time
@@ -25,14 +25,14 @@ from tensorboardX import SummaryWriter
 import math
 import sys
 import os
-from pytorch_model_summary import summary
+from torchsummary import summary
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--network", type=str, choices=["resnet", "sqnxt"], default="sqnxt")
 parser.add_argument(
     "--method",
     type=str,
-    choices=["euler", "rk2", "fixed_bosh3", "rk4", "fixed_dopri5"],
+    choices=["euler", "rk2", "bosh3", "rk4", "dopri5"],
     default="euler",
 )  # Time stepping schemes for ODE solvers
 parser.add_argument("--num_epochs", type=int, default=200)  # Number of Epochs in total
@@ -66,9 +66,9 @@ if is_use_cuda:
 
     nvidia_smi.nvmlInit()
     total_cuda_mem = 0.0
-# Specify the arch of PETSc being used and initialize PETSc and petsc4py. For this driver, PETSc should be built with single precision.
-petsc4py_path = os.path.join(os.environ["PETSC_DIR"], os.environ["PETSC_ARCH"], "lib")
-sys.path.append(petsc4py_path)
+# Experienced PETSc users may switch archs by setting the petsc4py path manually
+# petsc4py_path = os.path.join(os.environ["PETSC_DIR"], os.environ["PETSC_ARCH"], "lib")
+# sys.path.append(petsc4py_path)
 import petsc4py
 
 petsc4py.init(sys.argv)

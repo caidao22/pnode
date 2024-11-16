@@ -2,6 +2,8 @@
 ########################################
 # Example of usage:
 #   python3 ROBER.py --double_prec --implicit_form -ts_trajectory_type memory --normalize minmax
+# Note:
+#   - Use --double_prec if you have installed PETSc with double precision
 # Prerequisites:
 #   pnode petsc4py scipy matplotlib torch tensorboardX
 
@@ -31,7 +33,7 @@ parser = argparse.ArgumentParser("ODE demo")
 parser.add_argument(
     "--pnode_method",
     type=str,
-    choices=["euler", "rk2", "fixed_bosh3", "rk4", "fixed_dopri5", "beuler", "cn"],
+    choices=["euler", "rk2", "bosh3", "rk4", "dopri5", "beuler", "cn"],
     default="cn",
 )
 parser.add_argument("--normalize", type=str, choices=["minmax", "mean"], default=None)
@@ -360,6 +362,7 @@ def validate_data():
 
 
 if __name__ == "__main__":
+    # Experienced PETSc users may switch archs by setting the petsc4py path manually
     # petsc4py_path = os.path.join(os.environ['PETSC_DIR'],os.environ['PETSC_ARCH'],'lib')
     # sys.path.append(petsc4py_path)
     import petsc4py

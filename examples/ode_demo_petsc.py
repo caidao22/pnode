@@ -23,16 +23,12 @@ import sys
 #   - PETSc4py must be installed. It can be installed with PETSc using the configuration option --with-petsc4py
 #   - Must add -ts_adapt_type none to disable adaptive time integration for this example
 #   - Add --double_prec if PETSc is configured with double precision. It is not needed if PETSc is configured with --with-precision=single
-#   - The time integration methods can be switched at runtime
-#       Explicit RK: -ts_type rk -ts_rk_type <1fe,2a,3,3bs,4,5f,5dp,5bs>
-#       Backward Euler: -ts_type beuler
-#       Crank-Nicolson: -ts_type cn
 #   - By default, disk is used for checkpointing. To use DRAM, add -ts_trajectory_type memory. -ts_trajectory_solution_only 0 can be used to further reduce recomputation at the cost of more memory usage
 
 parser = argparse.ArgumentParser("ODE demo")
 parser.add_argument(
-    "--method", type=str, choices=["dopri5", "adams", "dopri5_fixed"], default="dopri5"
-)
+    "--method", type=str, choices=["euler", "rk2", "bosh3", "rk4", "dopri5", "beuler", "cn"], default="dopri5"
+) # must add the option --implicit_form if you want to use implicit methods such as beuler and cn
 parser.add_argument("--data_size", type=int, default=1001)
 parser.add_argument("--batch_time", type=int, default=10)
 parser.add_argument("--batch_size", type=int, default=20)
@@ -46,6 +42,7 @@ parser.add_argument("--double_prec", action="store_true")
 parser.add_argument("--use_dlpack", action="store_true")
 args, unknown = parser.parse_known_args()
 
+method = args.method
 gpu = args.gpu
 niters = args.niters
 test_freq = args.test_freq
@@ -57,8 +54,9 @@ implicit_form = args.implicit_form
 double_prec = args.double_prec
 use_dlpack = args.use_dlpack
 
-petsc4py_path = os.path.join(os.environ["PETSC_DIR"], os.environ["PETSC_ARCH"], "lib")
-sys.path.append(petsc4py_path)
+# Experienced PETSc users may switch archs by setting the petsc4py path manually
+# petsc4py_path = os.path.join(os.environ["PETSC_DIR"], os.environ["PETSC_ARCH"], "lib")
+# sys.path.append(petsc4py_path)
 import petsc4py
 
 sys.argv = [sys.argv[0]] + unknown
@@ -106,6 +104,7 @@ ode0.setupTS(
     true_y0,
     Lambda(),
     step_size=step_size,
+    method=method,
     enable_adjoint=False,
     implicit_form=implicit_form,
     use_dlpack=use_dlpack,
@@ -262,6 +261,7 @@ if __name__ == "__main__":
         batch_y0,
         func,
         step_size=step_size,
+        method=method,
         implicit_form=implicit_form,
         use_dlpack=use_dlpack,
     )
@@ -282,6 +282,7 @@ if __name__ == "__main__":
                     true_y0,
                     func,
                     step_size=step_size,
+                    method=method,
                     enable_adjoint=False,
                     implicit_form=implicit_form,
                     use_dlpack=use_dlpack,

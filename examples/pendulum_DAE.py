@@ -4,6 +4,7 @@
 #   1. The algebraic constraints are known
 ##     One can do
 #        python3 pendulum_DAE.py --double_prec --implicit_form -ts_trajectory_type memory
+#      Use --double_prec if you have installed PETSc with double precision
 #      The best model obtained during the training will be saved to ./train_results/best_pendulum_dae.pth
 #      The saved model can be loaded in other runs with --hotstart
 #

@@ -14,7 +14,7 @@ petsc4py needs to be installed first. The suggested way to install petsc4py is t
 ```
 git clone https://gitlab.com/petsc/petsc.git
 cd petsc
-./configure PETSC_ARCH=arch-linux-opt --with-debugging=0 --download-petsc4py
+./configure PETSC_ARCH=arch-linux-opt --with-debugging=0 --with-petsc4py
 ```
 Here minimal configure options are provided. Several other widely used options are listed below:
 
@@ -72,7 +72,7 @@ where `t` is a 1-D Tensor containing the evaluation points and  `t[0]` is the in
 
 ### Keyword Arguments in the setup function
  - `step_size` Step size for time integration.
- - `method` One of the solvers among 'euler', 'midpoint', 'rk4', 'dopri5_fixed'.
+ - `method` One of the solvers among 'euler', 'midpoint', 'rk4', 'dopri5'.
  - `enable_adjoint` Switch for enabling or disabling the adjoint sweep.
 
 These are just a few options for convenience. More PETSc settings can be used at runtime with command line options. For example, `-ts_type cn` will choose the Crank-Nicolson methods for time integration, and `-ts_type rk -ts_rk_type 4` will choose the classic RK4 solver. For more details, we suggest reading the PETSc manual and the examples included.

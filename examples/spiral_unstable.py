@@ -1,6 +1,8 @@
 ########################################
 # Example of usage:
 #   python3 spiral_unstable.py -ts_adapt_type none -ts_trajectory_type memory --double_prec --ref_method rk2 --pnode_method cn --niters 200 --test_freq 10 --implicit_form
+# Note:
+#   - Use --double_prec if you have installed PETSc with double precision
 # Prerequisites:
 #   pnode torchvision tensorboardX pytorch_model_summary petsc4py
 #######################################
@@ -25,14 +27,14 @@ parser = argparse.ArgumentParser("ODE demo")
 parser.add_argument(
     "--ref_method",
     type=str,
-    choices=["euler", "rk2", "fixed_bosh3", "rk4", "fixed_dopri5"],
-    default="euler",
+    choices=["euler", "rk2", "bosh3", "rk4", "dopri5"],
+    default="dopri5",
 )
 parser.add_argument(
     "--pnode_method",
     type=str,
-    choices=["euler", "rk2", "fixed_bosh3", "rk4", "fixed_dopri5", "beuler", "cn"],
-    default="euler",
+    choices=["euler", "rk2", "bosh3", "rk4", "dopri5", "beuler", "cn"],
+    default="dopri5",
 )
 parser.add_argument("--step_size", type=float, default=0.1)  # 0.1
 parser.add_argument("--data_size", type=int, default=161)  # 161
@@ -69,8 +71,9 @@ else:
     t = torch.linspace(0.0, 16.0, args.data_size)
     true_A = torch.tensor([[-0.1, 2.0], [-2.0, -0.1]]).to(device)
 
-petsc4py_path = os.path.join(os.environ["PETSC_DIR"], os.environ["PETSC_ARCH"], "lib")
-sys.path.append(petsc4py_path)
+# Experienced PETSc users may switch archs by setting the petsc4py path manually
+# petsc4py_path = os.path.join(os.environ["PETSC_DIR"], os.environ["PETSC_ARCH"], "lib")
+# sys.path.append(petsc4py_path)
 import petsc4py
 
 sys.argv = [sys.argv[0]] + unknown

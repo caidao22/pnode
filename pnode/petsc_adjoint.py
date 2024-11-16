@@ -539,7 +539,7 @@ class ODEPetsc(object):
         enable_adjoint=True,
         implicit_form=False,
         use_dlpack=True,
-        method="euler",
+        method="dopri5",
         mass=None,
         imex_form=False,
         func2=None,
@@ -642,11 +642,11 @@ class ODEPetsc(object):
                 self.ts.setRKType("1fe")
             elif method == "rk2":  # 2a is Heun's method, not midpoint.
                 self.ts.setRKType("2b")
-            elif method == "fixed_bosh3":
+            elif method == "fixed_bosh3" or method == "bosh3":
                 self.ts.setRKType("3bs")
             elif method == "rk4":
                 self.ts.setRKType("4")
-            elif method == "fixed_dopri5":
+            elif method == "fixed_dopri5" or method == "dopri5":
                 self.ts.setRKType("5dp")
             elif method == "beuler":
                 self.ts.setType(PETSc.TS.Type.BE)
