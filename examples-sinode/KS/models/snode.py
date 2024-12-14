@@ -16,6 +16,8 @@ class ODEFunc(nn.Module):
             act(),
             nn.Linear(self.hidden, self.hidden),
             act(),
+            nn.Linear(self.hidden, self.hidden),
+            act(),
             nn.Linear(self.hidden, self.input_size),
         )
         self.A = nn.Conv1d(in_channels=1, out_channels=1, kernel_size=5, padding='same', padding_mode='circular', bias=False)
