@@ -13,13 +13,13 @@ from torch_geometric.datasets import Planetoid, Amazon, Coauthor
 from torch.optim import Adam, Optimizer
 from DIGL_seeds import development_seed
 
-DATA_PATH = 'data'
+DATA_PATH = "data"
 
 
 def train(model: torch.nn.Module, optimizer: Optimizer, data: Data):
     model.train()
     optimizer.zero_grad()
-    logits = model(data.x) #data
+    logits = model(data.x)  # data
     loss = F.nll_loss(logits[data.train_mask], data.y[data.train_mask])
     loss.backward()
     optimizer.step()
@@ -28,28 +28,29 @@ def train(model: torch.nn.Module, optimizer: Optimizer, data: Data):
 def evaluate(model: torch.nn.Module, data: Data, test: bool):
     model.eval()
     with torch.no_grad():
-        logits = model(data.x) #data
+        logits = model(data.x)  # data
     eval_dict = {}
-    keys = ['val', 'test'] if test else ['val']
+    keys = ["val", "test"] if test else ["val"]
     for key in keys:
-        mask = data[f'{key}_mask']
+        mask = data[f"{key}_mask"]
         # loss = F.nll_loss(logits[mask], data.y[mask]).item()
         # eval_dict[f'{key}_loss'] = loss
         pred = logits[mask].max(1)[1]
         acc = pred.eq(data.y[mask]).sum().item() / mask.sum().item()
-        eval_dict[f'{key}_acc'] = acc
+        eval_dict[f"{key}_acc"] = acc
     return eval_dict
+
 
 def get_dataset(name: str, use_lcc: bool = True) -> InMemoryDataset:
     path = os.path.join(DATA_PATH, name)
-    if name in ['Cora', 'Citeseer', 'Pubmed']:
+    if name in ["Cora", "Citeseer", "Pubmed"]:
         dataset = Planetoid(path, name)
-    elif name in ['Computers', 'Photo']:
+    elif name in ["Computers", "Photo"]:
         dataset = Amazon(path, name)
-    elif name == 'CoauthorCS':
-        dataset = Coauthor(path, 'CS')
+    elif name == "CoauthorCS":
+        dataset = Coauthor(path, "CS")
     else:
-        raise Exception('Unknown dataset.')
+        raise Exception("Unknown dataset.")
 
     if use_lcc:
         lcc = get_largest_connected_component(dataset)
@@ -67,7 +68,7 @@ def get_dataset(name: str, use_lcc: bool = True) -> InMemoryDataset:
             y=y_new,
             train_mask=torch.zeros(y_new.size()[0], dtype=torch.bool),
             test_mask=torch.zeros(y_new.size()[0], dtype=torch.bool),
-            val_mask=torch.zeros(y_new.size()[0], dtype=torch.bool)
+            val_mask=torch.zeros(y_new.size()[0], dtype=torch.bool),
         )
         dataset.data = data
 
@@ -82,7 +83,9 @@ def get_component(dataset: InMemoryDataset, start: int = 0) -> set:
         current_node = queued_nodes.pop()
         visited_nodes.update([current_node])
         neighbors = col[np.where(row == current_node)[0]]
-        neighbors = [n for n in neighbors if n not in visited_nodes and n not in queued_nodes]
+        neighbors = [
+            n for n in neighbors if n not in visited_nodes and n not in queued_nodes
+        ]
         queued_nodes.update(neighbors)
     return visited_nodes
 
@@ -119,13 +122,11 @@ def get_adj_matrix(dataset: InMemoryDataset) -> np.ndarray:
     num_nodes = dataset.data.x.shape[0]
     adj_matrix = np.zeros(shape=(num_nodes, num_nodes))
     for i, j in zip(dataset.data.edge_index[0], dataset.data.edge_index[1]):
-        adj_matrix[i, j] = 1.
+        adj_matrix[i, j] = 1.0
     return adj_matrix
 
 
-def get_ppr_matrix(
-        adj_matrix: np.ndarray,
-        alpha: float = 0.1) -> np.ndarray:
+def get_ppr_matrix(adj_matrix: np.ndarray, alpha: float = 0.1) -> np.ndarray:
     num_nodes = adj_matrix.shape[0]
     A_tilde = adj_matrix + np.eye(num_nodes)
     D_tilde = np.diag(1 / np.sqrt(A_tilde.sum(axis=1)))
@@ -133,9 +134,7 @@ def get_ppr_matrix(
     return alpha * np.linalg.inv(np.eye(num_nodes) - (1 - alpha) * H)
 
 
-def get_heat_matrix(
-        adj_matrix: np.ndarray,
-        t: float = 5.0) -> np.ndarray:
+def get_heat_matrix(adj_matrix: np.ndarray, t: float = 5.0) -> np.ndarray:
     num_nodes = adj_matrix.shape[0]
     A_tilde = adj_matrix + np.eye(num_nodes)
     D_tilde = np.diag(1 / np.sqrt(A_tilde.sum(axis=1)))
@@ -146,7 +145,7 @@ def get_heat_matrix(
 def get_top_k_matrix(A: np.ndarray, k: int = 128) -> np.ndarray:
     num_nodes = A.shape[0]
     row_idx = np.arange(num_nodes)
-    A[A.argsort(axis=0)[:num_nodes - k], row_idx] = 0.
+    A[A.argsort(axis=0)[: num_nodes - k], row_idx] = 0.0
     norm = A.sum(axis=0)
     norm[norm <= 0] = 1  # avoid dividing by zero
     return A / norm
@@ -154,18 +153,16 @@ def get_top_k_matrix(A: np.ndarray, k: int = 128) -> np.ndarray:
 
 def get_clipped_matrix(A: np.ndarray, eps: float = 0.01) -> np.ndarray:
     num_nodes = A.shape[0]
-    A[A < eps] = 0.
+    A[A < eps] = 0.0
     norm = A.sum(axis=0)
     norm[norm <= 0] = 1  # avoid dividing by zero
     return A / norm
 
 
 def set_train_val_test_split(
-        seed: int,
-        data: Data,
-        num_development: int = 1500,
-        num_per_class: int = 20) -> Data:
-    rnd_state = np.random.RandomState(seed)  #seed development_seed)
+    seed: int, data: Data, num_development: int = 1500, num_per_class: int = 20
+) -> Data:
+    rnd_state = np.random.RandomState(seed)  # seed development_seed)
     num_nodes = data.y.shape[0]
     development_idx = rnd_state.choice(num_nodes, num_development, replace=False)
     test_idx = [i for i in np.arange(num_nodes) if i not in development_idx]
@@ -197,12 +194,14 @@ class PPRDataset(InMemoryDataset):
     since we directly invert the adjacency matrix.
     """
 
-    def __init__(self,
-                 name: str = 'Cora',
-                 use_lcc: bool = True,
-                 alpha: float = 0.1,
-                 k: int = 16,
-                 eps: float = None):
+    def __init__(
+        self,
+        name: str = "Cora",
+        use_lcc: bool = True,
+        alpha: float = 0.1,
+        k: int = 16,
+        eps: float = None,
+    ):
         self.name = name
         self.use_lcc = use_lcc
         self.alpha = alpha
@@ -218,7 +217,7 @@ class PPRDataset(InMemoryDataset):
 
     @property
     def processed_file_names(self) -> list:
-        return [str(self) + '.pt']
+        return [str(self) + ".pt"]
 
     def download(self):
         pass
@@ -228,14 +227,13 @@ class PPRDataset(InMemoryDataset):
         # generate adjacency matrix from sparse representation
         adj_matrix = get_adj_matrix(base)
         # obtain exact PPR matrix
-        ppr_matrix = get_ppr_matrix(adj_matrix,
-                                    alpha=self.alpha)
+        ppr_matrix = get_ppr_matrix(adj_matrix, alpha=self.alpha)
 
         if self.k:
-            print(f'Selecting top {self.k} edges per node.')
+            print(f"Selecting top {self.k} edges per node.")
             ppr_matrix = get_top_k_matrix(ppr_matrix, k=self.k)
         elif self.eps:
-            print(f'Selecting edges with weight greater than {self.eps}.')
+            print(f"Selecting edges with weight greater than {self.eps}.")
             ppr_matrix = get_clipped_matrix(ppr_matrix, eps=self.eps)
         else:
             raise ValueError
@@ -258,14 +256,14 @@ class PPRDataset(InMemoryDataset):
             y=base.data.y,
             train_mask=torch.zeros(base.data.train_mask.size()[0], dtype=torch.bool),
             test_mask=torch.zeros(base.data.test_mask.size()[0], dtype=torch.bool),
-            val_mask=torch.zeros(base.data.val_mask.size()[0], dtype=torch.bool)
+            val_mask=torch.zeros(base.data.val_mask.size()[0], dtype=torch.bool),
         )
 
         data, slices = self.collate([data])
         torch.save((data, slices), self.processed_paths[0])
 
     def __str__(self) -> str:
-        return f'{self.name}_ppr_alpha={self.alpha}_k={self.k}_eps={self.eps}_lcc={self.use_lcc}'
+        return f"{self.name}_ppr_alpha={self.alpha}_k={self.k}_eps={self.eps}_lcc={self.use_lcc}"
 
 
 class HeatDataset(InMemoryDataset):
@@ -276,12 +274,14 @@ class HeatDataset(InMemoryDataset):
     of the adjacency matrix.
     """
 
-    def __init__(self,
-                 name: str = 'Cora',
-                 use_lcc: bool = True,
-                 t: float = 5.0,
-                 k: int = 16,
-                 eps: float = None):
+    def __init__(
+        self,
+        name: str = "Cora",
+        use_lcc: bool = True,
+        t: float = 5.0,
+        k: int = 16,
+        eps: float = None,
+    ):
         self.name = name
         self.use_lcc = use_lcc
         self.t = t
@@ -297,7 +297,7 @@ class HeatDataset(InMemoryDataset):
 
     @property
     def processed_file_names(self) -> list:
-        return [str(self) + '.pt']
+        return [str(self) + ".pt"]
 
     def download(self):
         pass
@@ -307,13 +307,12 @@ class HeatDataset(InMemoryDataset):
         # generate adjacency matrix from sparse representation
         adj_matrix = get_adj_matrix(base)
         # get heat matrix as described in Berberidis et al., 2019
-        heat_matrix = get_heat_matrix(adj_matrix,
-                                      t=self.t)
+        heat_matrix = get_heat_matrix(adj_matrix, t=self.t)
         if self.k:
-            print(f'Selecting top {self.k} edges per node.')
+            print(f"Selecting top {self.k} edges per node.")
             heat_matrix = get_top_k_matrix(heat_matrix, k=self.k)
         elif self.eps:
-            print(f'Selecting edges with weight greater than {self.eps}.')
+            print(f"Selecting edges with weight greater than {self.eps}.")
             heat_matrix = get_clipped_matrix(heat_matrix, eps=self.eps)
         else:
             raise ValueError
@@ -336,11 +335,13 @@ class HeatDataset(InMemoryDataset):
             y=base.data.y,
             train_mask=torch.zeros(base.data.train_mask.size()[0], dtype=torch.bool),
             test_mask=torch.zeros(base.data.test_mask.size()[0], dtype=torch.bool),
-            val_mask=torch.zeros(base.data.val_mask.size()[0], dtype=torch.bool)
+            val_mask=torch.zeros(base.data.val_mask.size()[0], dtype=torch.bool),
         )
 
         data, slices = self.collate([data])
         torch.save((data, slices), self.processed_paths[0])
 
     def __str__(self) -> str:
-        return f'{self.name}_heat_t={self.t}_k={self.k}_eps={self.eps}_lcc={self.use_lcc}'
+        return (
+            f"{self.name}_heat_t={self.t}_k={self.k}_eps={self.eps}_lcc={self.use_lcc}"
+        )

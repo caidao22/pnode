@@ -56,12 +56,14 @@ class ODENVP(nn.Module):
                     idims=self.intermediate_dims,
                     squeeze=(i < self.n_scale - 1),  # don't squeeze last layer
                     init_layer=(
-                        layers.LogitTransform(self.alpha)
-                        if self.alpha > 0
-                        else layers.ZeroMeanTransform()
-                    )
-                    if self.squash_input and i == 0
-                    else None,
+                        (
+                            layers.LogitTransform(self.alpha)
+                            if self.alpha > 0
+                            else layers.ZeroMeanTransform()
+                        )
+                        if self.squash_input and i == 0
+                        else None
+                    ),
                     n_blocks=self.n_blocks,
                     cnf_kwargs=self.cnf_kwargs,
                     nonlinearity=self.nonlinearity,

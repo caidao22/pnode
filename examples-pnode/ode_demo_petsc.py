@@ -27,8 +27,11 @@ import sys
 
 parser = argparse.ArgumentParser("ODE demo")
 parser.add_argument(
-    "--method", type=str, choices=["euler", "rk2", "bosh3", "rk4", "dopri5", "beuler", "cn"], default="dopri5"
-) # must add the option --implicit_form if you want to use implicit methods such as beuler and cn
+    "--method",
+    type=str,
+    choices=["euler", "rk2", "bosh3", "rk4", "dopri5", "beuler", "cn"],
+    default="dopri5",
+)  # must add the option --implicit_form if you want to use implicit methods such as beuler and cn
 parser.add_argument("--data_size", type=int, default=1001)
 parser.add_argument("--batch_time", type=int, default=10)
 parser.add_argument("--batch_size", type=int, default=20)

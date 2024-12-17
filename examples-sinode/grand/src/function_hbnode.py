@@ -19,7 +19,7 @@ class net(nn.Module):
         self.dense3 = nn.Linear(out_channels, out_channels)
 
     def forward(self, h, x):
-        #import pdb;pdb.set_trace()
+        # import pdb;pdb.set_trace()
         out = self.dense1(x)
         out = self.actv(out)
         out = self.dense2(out)
@@ -28,27 +28,23 @@ class net(nn.Module):
         return out
 
 
-
 class HeavyBallNODEFunc(ODEFunc):
-  def __init__(self, in_features, out_features, opt, data, device):
-    super(HeavyBallNODEFunc, self).__init__(opt, data, device)
-    self.net = net(in_features, out_features)
-    self.func = HeavyBallNODE(self.net, corr=0, corrf=True)
-  
-  def forward(self, t, x):  # t is needed when called by the integrator
-    if self.nfe > self.opt["max_nfe"]:
-      raise MaxNFEException
+    def __init__(self, in_features, out_features, opt, data, device):
+        super(HeavyBallNODEFunc, self).__init__(opt, data, device)
+        self.net = net(in_features, out_features)
+        self.func = HeavyBallNODE(self.net, corr=0, corrf=True)
 
-    self.nfe += 1
-    #import pdb;pdb.set_trace()
-    f = self.func(t,x)
-    return f
+    def forward(self, t, x):  # t is needed when called by the integrator
+        if self.nfe > self.opt["max_nfe"]:
+            raise MaxNFEException
 
-
+        self.nfe += 1
+        # import pdb;pdb.set_trace()
+        f = self.func(t, x)
+        return f
 
 
-
-#if __name__ == '__main__':
+# if __name__ == '__main__':
 #  device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 #  opt = {'dataset': 'Cora', 'self_loop_weight': 1, 'leaky_relu_slope': 0.2, 'heads': 2, 'K': 10,
 #         'attention_norm_idx': 0, 'add_source': False,

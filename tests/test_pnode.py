@@ -57,7 +57,7 @@ def jac(t, state):
 
 
 def get_data(initial_state, **kwargs):
-    if not "rtol" in kwargs.keys():
+    if "rtol" not in kwargs.keys():
         kwargs["rtol"] = 1e-11
         kwargs["atol"] = 1e-14
     t_eval = t.detach().numpy()
@@ -99,12 +99,8 @@ class Lambda(nn.Module):
 class LambdaIM(nn.Module):
     def __init__(self):
         super(LambdaIM, self).__init__()
-        self.k1 = nn.Parameter(
-            torch.tensor([0.05], dtype=torch.float64)
-        )
-        self.k3 = nn.Parameter(
-            torch.tensor([2e4], dtype=torch.float64)
-        )
+        self.k1 = nn.Parameter(torch.tensor([0.05], dtype=torch.float64))
+        self.k3 = nn.Parameter(torch.tensor([2e4], dtype=torch.float64))
 
     def forward(self, t, y):
         k1 = self.k1[0]
@@ -118,14 +114,12 @@ class LambdaIM(nn.Module):
 class LambdaEX(nn.Module):
     def __init__(self):
         super(LambdaEX, self).__init__()
-        self.k2 = nn.Parameter(
-            torch.tensor([4e7], dtype=torch.float64)
-        )
+        self.k2 = nn.Parameter(torch.tensor([4e7], dtype=torch.float64))
 
     def forward(self, t, y):
         k2 = self.k2[0]
         f1 = torch.tensor(0, device=device, dtype=torch.float64)
-        f2 = - k2 * y[1] ** 2
+        f2 = -k2 * y[1] ** 2
         f3 = k2 * y[1] ** 2
         return torch.stack((f1, f2, f3), -1)
 
@@ -185,6 +179,7 @@ def test_petsc_imex_odesolver():
     assert loss.item() == pytest.approx(3.11e-6, abs=3e-6)
     assert loss_std.item() == pytest.approx(5.65e-6, abs=3e-6)
 
+
 def test_petsc_explicit_odesolver():
     func_validate = Lambda().to(device)
     ode_validate = petsc_adjoint.ODEPetsc()
@@ -204,6 +199,7 @@ def test_petsc_explicit_odesolver():
         print(p.grad)
     assert loss.item() == pytest.approx(1.85e-6, abs=1e-6)
     assert loss_std.item() == pytest.approx(3.21e-6, abs=1e-6)
+
 
 if __name__ == "__main__":
     test_petsc_implicit_odesolver()

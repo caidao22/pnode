@@ -475,7 +475,7 @@ class ODEPetsc(object):
             from torch.func import jacrev
 
             shape = self.innerkspmat.getSizes()[0]
-            func_eval = self.funcIM(t, self.cached_u_tensor[0:1])
+            # func_eval = self.funcIM(t, self.cached_u_tensor[0:1])
             jacobianIM = jacrev(self.funcIM, argnums=1)(t, self.cached_u_tensor[0:1])
             self.jacobianIM = jacobianIM.view(*shape)
             self.reset_jacobianIM = False
@@ -683,7 +683,7 @@ class ODEPetsc(object):
                 if self.linear_solver != "petsc":
                     if self.linear_solver == "hpddm":
                         from .hpddm_linearsolve import PCShell
-                    if self.linear_solver == "torch":
+                    elif self.linear_solver == "torch":
                         from .torch_linearsolve import PCShell
                     # set up for HPDDM
                     if self.matrixfree_jacobian:
@@ -789,7 +789,7 @@ class ODEPetsc(object):
         Returns
             solution: Tensor, where the frist dimension corresponds to the input time points.
         """
-        if (self.fixed_jacobian and self.reset_jacobianIM == False) or (
+        if (self.fixed_jacobian and self.reset_jacobianIM is False) or (
             not self.fixed_jacobian and not self.matrixfree_jacobian
         ):
             self.reset_jacobianIM = True  # recompute the jacobian for functionIM since the parameters have been updated

@@ -16,7 +16,7 @@ import math
 
 ##################
 # Example of usage:
-#       python3 ODE_Ying.py --adjoint --pnode --imex --use_dlpack -ts_trajectory_type memory -ts_adapt_type none -ts_arkimex_type 1bee -snes_type ksponly 
+#       python3 ODE_Ying.py --adjoint --pnode --imex --use_dlpack -ts_trajectory_type memory -ts_adapt_type none -ts_arkimex_type 1bee -snes_type ksponly
 #
 # Notes:
 #   - By default this script use torchdiffeq
@@ -40,7 +40,12 @@ parser.add_argument(
     "--batch_size", type=int, default=20
 )  # Number of IC to calc gradient with each iteration
 
-parser.add_argument("--method", type=str, choices=["euler", "rk2", "bosh3", "rk4", "dopri5", "beuler", "cn"], default="dopri5") # only useful when using pnode
+parser.add_argument(
+    "--method",
+    type=str,
+    choices=["euler", "rk2", "bosh3", "rk4", "dopri5", "beuler", "cn"],
+    default="dopri5",
+)  # only useful when using pnode
 parser.add_argument("--niters", type=int, default=100)  # Iterations of training
 parser.add_argument(
     "--test_freq", type=int, default=1
@@ -84,15 +89,15 @@ class ODEFunc(nn.Module):
         super(ODEFunc, self).__init__()
         # Change the NN architecture here
         self.net = nn.Sequential(
-            nn.Linear(N, N*9//8),
+            nn.Linear(N, N * 9 // 8),
             nn.ReLU(),
-            nn.Linear(N*9//8, N*9//8),
+            nn.Linear(N * 9 // 8, N * 9 // 8),
             nn.ReLU(),
-            nn.Linear(N*9//8, N*9//8),
+            nn.Linear(N * 9 // 8, N * 9 // 8),
             nn.ReLU(),
-            nn.Linear(N*9//8, N*9//8),
+            nn.Linear(N * 9 // 8, N * 9 // 8),
             nn.ReLU(),
-            nn.Linear(N*9//8, N),
+            nn.Linear(N * 9 // 8, N),
         )
 
         self.lin = nn.Sequential(
@@ -131,15 +136,15 @@ class ODEFuncEX(nn.Module):
         super(ODEFuncEX, self).__init__()
         # Change the NN architecture here
         self.net = nn.Sequential(
-            nn.Linear(N, N*9//8),
+            nn.Linear(N, N * 9 // 8),
             nn.ReLU(),
-            nn.Linear(N*9//8, N*9//8),
+            nn.Linear(N * 9 // 8, N * 9 // 8),
             nn.ReLU(),
-            nn.Linear(N*9//8, N*9//8),
+            nn.Linear(N * 9 // 8, N * 9 // 8),
             nn.ReLU(),
-            nn.Linear(N*9//8, N*9//8),
+            nn.Linear(N * 9 // 8, N * 9 // 8),
             nn.ReLU(),
-            nn.Linear(N*9//8, N),
+            nn.Linear(N * 9 // 8, N),
         )
 
         for m in self.net.modules():
@@ -165,11 +170,21 @@ class ODEFuncEX(nn.Module):
 class ODEFuncIM(nn.Module):
     def __init__(self, fixed_linear=False, dx=0, alpha=8e-4):
         super(ODEFuncIM, self).__init__()
-        self.A = nn.Conv1d(in_channels=1, out_channels=1, kernel_size=3, padding='same', padding_mode='circular', bias=False)
+        self.A = nn.Conv1d(
+            in_channels=1,
+            out_channels=1,
+            kernel_size=3,
+            padding="same",
+            padding_mode="circular",
+            bias=False,
+        )
         for m in self.A.modules():
             nn.init.uniform_(m.weight, a=-math.sqrt(1.0 / 3.0), b=math.sqrt(1.0 / 3.0))
         if fixed_linear:
-            K = torch.tensor([[[alpha/dx**2, -2.0*alpha/dx**2,alpha/dx**2]]], device="cuda:0" if torch.cuda.is_available() else "cpu")
+            K = torch.tensor(
+                [[[alpha / dx**2, -2.0 * alpha / dx**2, alpha / dx**2]]],
+                device="cuda:0" if torch.cuda.is_available() else "cpu",
+            )
             self.A.weight = nn.Parameter(K, requires_grad=False)
         self.nfe = 0
 
@@ -178,6 +193,7 @@ class ODEFuncIM(nn.Module):
         linear_term = self.A(torch.unsqueeze(y, 1))
         linear_term = torch.squeeze(linear_term, 1)
         return linear_term
+
 
 # Romit version
 class ODEFuncIM_Romit(nn.Module):
@@ -270,29 +286,23 @@ def get_batch(dt, ttorch, utorch, args):
 
 if __name__ == "__main__":
     # Check if there are gpus
-    device = torch.device("cuda:" + str(args.gpu) if torch.cuda.is_available() else "cpu")
+    device = torch.device(
+        "cuda:" + str(args.gpu) if torch.cuda.is_available() else "cpu"
+    )
 
     if not os.path.exists(args.train_dir):
         os.mkdir(args.train_dir)
     # Save the model
     if args.imex:
         if args.double_prec:
-            prefix = "pnode_double_{}_imex".format(
-                args.linear_solver
-            )
+            prefix = "pnode_double_{}_imex".format(args.linear_solver)
         else:
-            prefix = "pnode_single_{}_imex".format(
-                args.linear_solver
-            )
+            prefix = "pnode_single_{}_imex".format(args.linear_solver)
     elif args.pnode:
         if args.double_prec:
-            prefix = "pnode_double_{}_{}".format(
-                args.linear_solver, args.method
-            )
+            prefix = "pnode_double_{}_{}".format(args.linear_solver, args.method)
         else:
-            prefix = "pnode_single_{}_{}".format(
-                args.linear_solver, args.method
-            )
+            prefix = "pnode_single_{}_{}".format(args.linear_solver, args.method)
     else:
         if args.double_prec:
             prefix = "node_double_{}".format(args.method)
@@ -309,7 +319,7 @@ if __name__ == "__main__":
     ###########################################################################
     # [u, t] = pickle.load(open("./Data_T5_IC100.p", "rb"))
     [u, t] = pickle.load(open("./Data_T5_IC100_NX1024.p", "rb"))
-    dt = 0.1 # must match the time interval in the data
+    dt = 0.1  # must match the time interval in the data
     t = np.arange(51)
     ttorch = torch.from_numpy(t).repeat(100, 1)
 
@@ -339,11 +349,11 @@ if __name__ == "__main__":
         # construct an ODEPetsc object for testing
         ode_test = petsc_adjoint.ODEPetsc()
         if args.double_prec:
-            pnode_funcIM = ODEFuncIM(True,1/N,8e-4).double().to(device)
+            pnode_funcIM = ODEFuncIM(True, 1 / N, 8e-4).double().to(device)
             # pnode_funcIM = ODEFuncIM_Romit(N).double().to(device)
             pnode_funcEX = ODEFuncEX(N).double().to(device)
         else:
-            pnode_funcIM = ODEFuncIM(True,1/N,8e-4).to(device)
+            pnode_funcIM = ODEFuncIM(True, 1 / N, 8e-4).to(device)
             pnode_funcEX = ODEFuncEX(N).to(device)
         if args.imex:
             ode_train.setupTS(
@@ -559,15 +569,25 @@ if __name__ == "__main__":
                     test_loss.item(),
                 ]
                 if args.tb_log:
-                    writer.add_scalar("Test/Loss", test_loss, itr//(args.test_freq * iter_per_epoch))
-                    writer.add_scalar("NFE", fnfe_accumulated + bnfe_accumulated, itr//(args.test_freq * iter_per_epoch))
-                    writer.add_scalar("Train time", end - start, itr//(args.test_freq * iter_per_epoch))
+                    writer.add_scalar(
+                        "Test/Loss", test_loss, itr // (args.test_freq * iter_per_epoch)
+                    )
+                    writer.add_scalar(
+                        "NFE",
+                        fnfe_accumulated + bnfe_accumulated,
+                        itr // (args.test_freq * iter_per_epoch),
+                    )
+                    writer.add_scalar(
+                        "Train time",
+                        end - start,
+                        itr // (args.test_freq * iter_per_epoch),
+                    )
                 ii += 1
                 start = time.time()
                 fnfe_accumulated = 0
                 bnfe_accumulated = 0
     # Save the model
-    modelname = os.path.join(args.train_dir, prefix+".pt")
+    modelname = os.path.join(args.train_dir, prefix + ".pt")
     if args.imex:
         torch.save(pnode_funcEX.state_dict(), modelname)
     elif args.pnode:

@@ -111,7 +111,7 @@ def jac(t, state):
 
 
 def get_data(initial_state, **kwargs):
-    if not "rtol" in kwargs.keys():
+    if "rtol" not in kwargs.keys():
         kwargs["rtol"] = 1e-11
         kwargs["atol"] = 1e-14
     t_eval = t.detach().numpy()

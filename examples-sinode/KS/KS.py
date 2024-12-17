@@ -258,12 +258,12 @@ class DistFuncDataset(Dataset):
 def split_and_preprocess(
     u, t, batch_size, sizes=[0.8, 0.2], seed=42, write=False, preprocess=None
 ):
-    ## SPLIT DATA into train/val/validate sets
+    # SPLIT DATA into train/val/validate sets
     N_all = u.shape[0]
     inds = np.arange(N_all)
 
     num_train = int(np.floor(sizes[0] * N_all))
-    num_validate = int(np.floor(sizes[1] * N_all))
+    # num_validate = int(np.floor(sizes[1] * N_all))
     np.random.seed(seed)
     np.random.shuffle(inds)
 
@@ -461,9 +461,9 @@ if __name__ == "__main__":
     ode_PNODE = petsc_adjoint.ODEPetsc()
     if args.pnode_model == "mlp":
         from models.mlp import ODEFunc
-    if args.pnode_model == "snode":
+    elif args.pnode_model == "snode":
         from models.snode import ODEFunc
-    if args.pnode_model == "imex":
+    elif args.pnode_model == "imex":
         from models.imex import ODEFuncIM, ODEFuncEX
 
         if args.double_prec:

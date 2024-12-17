@@ -150,11 +150,12 @@ class ParallelCNFLayers(layers.SequentialFlow):
         if init_layer is not None:
             chain.append(init_layer)
 
-        get_size = lambda s: (
-            initial_size[0] * (4**s),
-            initial_size[1] // (2**s),
-            initial_size[2] // (2**s),
-        )
+        def get_size(s):
+            return (
+                initial_size[0] * (4**s),
+                initial_size[1] // (2**s),
+                initial_size[2] // (2**s),
+            )
 
         def _make_odefunc():
             nets = [
