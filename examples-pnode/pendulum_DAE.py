@@ -2,7 +2,7 @@
 # Example of usage:
 #   In this example, we consider two scenarios for the DAE problem:
 #   1. The algebraic constraints are known
-##     One can do
+#      One can do
 #        python3 pendulum_DAE.py --double_prec --implicit_form -ts_trajectory_type memory
 #      Use --double_prec if you have installed PETSc with double precision
 #      The best model obtained during the training will be saved to ./train_results/best_pendulum_dae.pth
@@ -414,9 +414,11 @@ if __name__ == "__main__":
     if args.hotstart:
         ckpt_path = os.path.join(
             args.train_dir,
-            "best_pendulum_dae.pth"
-            if not args.unknown_alg
-            else "best_pendulum_dae_unknown_alg.pth",
+            (
+                "best_pendulum_dae.pth"
+                if not args.unknown_alg
+                else "best_pendulum_dae_unknown_alg.pth"
+            ),
         )
         ckpt = torch.load(ckpt_path, map_location=device)
         curr_iter = ckpt["iter"] + 1
@@ -495,9 +497,11 @@ if __name__ == "__main__":
                     visualize(test_t, test_y, pred_y_PNODE, func_PNODE, ii, "PNODE")
                     ckpt_path = os.path.join(
                         args.train_dir,
-                        "best_pendulum_dae.pth"
-                        if not args.unknown_alg
-                        else "best_pendulum_dae_unknown_alg.pth",
+                        (
+                            "best_pendulum_dae.pth"
+                            if not args.unknown_alg
+                            else "best_pendulum_dae_unknown_alg.pth"
+                        ),
                     )
                     torch.save(
                         {

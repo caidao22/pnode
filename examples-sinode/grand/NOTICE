@@ -1,0 +1,6 @@
+Copyright 2024 Hong Zhang
+
+This software includes software developed at Twitter Research (https://github.com/twitter-research/graph-neural-pde).
+
+The file function_mytransformer_attention.py contains changes to adapt for use with SINODE.
+

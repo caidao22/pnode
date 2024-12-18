@@ -11,7 +11,7 @@
 # More advanced settings:
 #   python3 KS.py --pnode_model imex -ts_arkimex_type ars122 -ts_trajectory_type memory --max_epochs 5000 --double_prec --time_window_size 4 --lr 1e-3 -ts_adapt_type none -snes_type ksponly -ksp_rtol 1e-9
 # Prerequisites:
-#   pnode petsc4py scipy matplotlib torch tensorboardX
+#   pnode petsc4py scipy matplotlib torch tensorboard
 
 #######################################
 import os
@@ -120,8 +120,8 @@ def get_data(
     time_window_size=1,
     time_window_endpoint=False,
 ):
-    train_data_path = "./training_data_L22_S512_N10000.pickle"
-    # train_data_path = "training_data_L22_S64_N10000.pickle"
+    # train_data_path = "./training_data_L22_S512_N10000.pickle"
+    train_data_path = "training_data_L22_S64_N10000.pickle"
     with open(train_data_path, "rb") as file:
         # Pickle the "data" dictionary using the highest protocol available.
         data = pickle.load(file)
@@ -258,12 +258,12 @@ class DistFuncDataset(Dataset):
 def split_and_preprocess(
     u, t, batch_size, sizes=[0.8, 0.2], seed=42, write=False, preprocess=None
 ):
-    ## SPLIT DATA into train/val/validate sets
+    # SPLIT DATA into train/val/validate sets
     N_all = u.shape[0]
     inds = np.arange(N_all)
 
     num_train = int(np.floor(sizes[0] * N_all))
-    num_validate = int(np.floor(sizes[1] * N_all))
+    # num_validate = int(np.floor(sizes[1] * N_all))
     np.random.seed(seed)
     np.random.shuffle(inds)
 
@@ -461,9 +461,9 @@ if __name__ == "__main__":
     ode_PNODE = petsc_adjoint.ODEPetsc()
     if args.pnode_model == "mlp":
         from models.mlp import ODEFunc
-    if args.pnode_model == "snode":
+    elif args.pnode_model == "snode":
         from models.snode import ODEFunc
-    if args.pnode_model == "imex":
+    elif args.pnode_model == "imex":
         from models.imex import ODEFuncIM, ODEFuncEX
 
         if args.double_prec:
@@ -491,6 +491,7 @@ if __name__ == "__main__":
             batch_size=args.batch_size,
             linear_solver=args.linear_solver,
             matrixfree_jacobian=True,
+            fixed_jacobian_across_solves=True,
         )
         params = list(funcIM_PNODE.parameters()) + list(funcEX_PNODE.parameters())
         optimizer_PNODE = optim.AdamW(params, lr=args.lr)
@@ -512,6 +513,7 @@ if __name__ == "__main__":
             batch_size=validateloader.batch_size,
             linear_solver=args.linear_solver,
             matrixfree_jacobian=True,
+            fixed_jacobian_across_solves=True,
         )
     else:
         if args.double_prec:
@@ -554,7 +556,7 @@ if __name__ == "__main__":
         )
 
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer_PNODE, patience=10, factor=0.75, min_lr=1e-5
+        optimizer_PNODE, patience=50, factor=0.75, min_lr=1e-6
     )
     end = time.time()
     time_meter = RunningAverageMeter(0.97)
@@ -591,8 +593,9 @@ if __name__ == "__main__":
     if args.lr != default_lr:  # reset scheduler
         optimizer_PNODE.param_groups[0]["lr"] = args.lr
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer_PNODE, patience=10, factor=0.75, min_lr=1e-5
+            optimizer_PNODE, patience=50, factor=0.75, min_lr=1e-6
         )
+    # loss = torch.nn.L1Loss()
     loss = torch.nn.MSELoss()
     start_PNODE = time.time()
     nfe0 = funcEX_PNODE.nfe if args.pnode_model == "imex" else func_PNODE.nfe

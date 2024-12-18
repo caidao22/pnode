@@ -1,15 +1,19 @@
-# PNODE: A PETSc-based Neural ODE Implementation
+# PNODE and SINODE: A PETSc-based Neural ODE Implementation
 
-This repository provides a neural ordinary differential equation (ODE) implementation using PyTorch and PETSc's discrete adjoint ODE solvers (TSAdjoint). The framework allows easy access to PETSc's time stepping algorithms, adjoint solvers and checkpointing algorithms. Switching between different algorithms can be simply done with command line options at runtime. All the examples are fully supported to run on the GPU with single or double precision.
+This repository provides a neural ordinary differential equation (ODE) implementation using PyTorch and [PETSc](https://petsc.org/release/overview/)'s discrete adjoint ODE solvers (TSAdjoint). The framework allows easy access to PETSc's time stepping algorithms, adjoint solvers and checkpointing algorithms. Switching between different algorithms can be simply done with command line options at runtime. All the examples are fully supported to run on the GPU with single or double precision. For the algorithm details, see the papers [A Memory-Efficient Neural Ordinary Differential Equation Framework Based on High-Level Adjoint Differentiation](https://arxiv.org/pdf/2206.01298) (**IEEE TAI**) and [Semi-Implicit Neural Ordinary Differential Equations](https://arxiv.org/abs/2412.11301) (**AAAI 2025**).
 
 ---
+
+## :rocket: News
+ - v1.1 has been released on Dec 17, 2024
+ - This release features a SINODE implementation and examples (see [`examples-sinode`](./examples-sinode))
 
 <!-- <p align="center">
   <img align="middle" src="./assets/.png" alt="" width="240" height="330" />
   <img align="middle" src="./assets/.png" alt="" width="240" height="330" />
 </p> -->
 
-## Installation
+## :computer: Installation
 petsc4py needs to be installed first. The suggested way to install petsc4py is to install it from PETSc source
 ```
 git clone https://gitlab.com/petsc/petsc.git
@@ -32,14 +36,21 @@ cd pnode
 pip3 install .
 ```
 
-## Examples
-Examples are provided in the [`examples`](./examples) directory. They include:
+## :books: Examples
+PNODE examples are provided in the [`examples-pnode`](./examples-pnode) directory.
 
- - [`examples/ode_demo_petsc.py`](./examples/ode_demo_petsc.py) Simplest example that demonstrate how to fit a spiral ODE
- - [`examples/train-Cifar10.py`](./examples/train-Cifar10.py) Image classification on the CIFAR-10 dataset
+ - [`examples-pnode/ode_demo_petsc.py`](./examples-pnode/ode_demo_petsc.py) Simplest example that demonstrate how to fit a spiral ODE
+ - [`examples-pnode/train-Cifar10.py`](./examples-pnode/train-Cifar10.py) Image classification on the CIFAR-10 dataset
  - [`ffjord-pnode/train_tabular.py`](./ffjord-pnode/train_tabular.py) Continuous normalizing flow on the datasets from MAF
 
-## Basic usage
+SINODE examples are provided in the [`examples-sinode`](./examples-sinode) directory. The datasets (compressed in tar.gz file) associated with these examples can be downloaded [here](https://web.cels.anl.gov/projects/petsc/sinode-data/sinode-data.tar.gz) and must be placed in the corresponding subfolders before running the code.
+
+ - [`examples-sinode/Burgers`](./examples-sinode/Burgers) Learning dynamics for the viscous Burgers equation
+ - [`examples-sinode/KS`](./examples-sinode/KS) Learning dynamics for the Kuramoto–Sivashinsky (KS) equation
+ - [`examples-sinode/grand`](./examples-sinode/grand) Graph Classification with [GRAND](https://arxiv.org/abs/1911.07532)
+
+
+## :beginner: Basic usage
 This library provides one class `ODEPetsc` with three interface functions:
 
  - `setupTS` setup function for the solver
@@ -77,7 +88,7 @@ where `t` is a 1-D Tensor containing the evaluation points and  `t[0]` is the in
 
 These are just a few options for convenience. More PETSc settings can be used at runtime with command line options. For example, `-ts_type cn` will choose the Crank-Nicolson methods for time integration, and `-ts_type rk -ts_rk_type 4` will choose the classic RK4 solver. For more details, we suggest reading the PETSc manual and the examples included.
 
-## Checkpointing
+## :floppy_disk: Checkpointing
 PNODE offers a variety of optimal checkpointing strategies through the PETSc TSAdjoint library. For best efficiency, we suggest users to start from the following options
 ```
 -ts_trajectory_type memory -ts_trajectory_solution_only 0
@@ -90,7 +101,19 @@ This will make PNODE store the solutions and stage values in DRAM at each time s
 
 ---
 If you found this tool useful in your research, please consider citing.
+
 ```
+@article{Zhang2024sinode},
+  author={Zhang, Hong and Liu, Ying and Maulik, Romit},
+  journal={Proceedings of the AAAI Conference on Artificial Intelligence},
+  title={Semi-Implicit Neural Ordinary Differential Equations},
+  year={2024},
+  volum={},
+  number={},
+  pages={},
+  doi={}
+}
+
 @article{Zhang2022pnode,
   author={Zhang, Hong and Zhao, Wenjun},
   journal={IEEE Transactions on Artificial Intelligence}, 
@@ -115,14 +138,14 @@ If you found this tool useful in your research, please consider citing.
 }
 
 @article{Zhang2023cams,
-title = {Optimal checkpointing for adjoint multistage time-stepping schemes},
-journal = {Journal of Computational Science},
-volume = {66},
-pages = {101913},
-year = {2023},
-issn = {1877-7503},
-doi = {https://doi.org/10.1016/j.jocs.2022.101913},
-url = {https://www.sciencedirect.com/science/article/pii/S1877750322002721},
-author = {Hong Zhang and Emil M. Constantinescu},
+  author = {Zhang, Hong and Constantinescu, Emil M},
+  title = {Optimal checkpointing for adjoint multistage time-stepping schemes},
+  journal = {Journal of Computational Science},
+  volume = {66},
+  pages = {101913},
+  year = {2023},
+  issn = {1877-7503},
+  doi = {https://doi.org/10.1016/j.jocs.2022.101913},
+  url = {https://www.sciencedirect.com/science/article/pii/S1877750322002721},
 }
 ```

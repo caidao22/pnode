@@ -94,7 +94,7 @@ parser.add_argument("--log_freq", type=int, default=10)
 parser.add_argument("--gpu", type=int, default=0)
 # args = parser.parse_args()
 args, unknown = parser.parse_known_args()
-if args.resume == None:
+if args.resume is None:
     os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -221,7 +221,9 @@ def restore_model(model, filename):
 
 
 if __name__ == "__main__":
-    cvt = lambda x: x.type(torch.float32).to(device, non_blocking=True)
+
+    def cvt(x):
+        return x.type(torch.float32).to(device, non_blocking=True)
 
     # logger.info('Using {} GPUs.'.format(torch.cuda.device_count()))
 

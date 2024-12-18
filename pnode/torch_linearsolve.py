@@ -3,10 +3,11 @@ import torch.utils.dlpack as dlpack
 import petsc4py
 from petsc4py import PETSc
 
+
 class PCShell:
     def __init__(self, A, m, n, use_cuda):
-        self._m = m # batch dimension
-        self._n = n # data size
+        self._m = m  # batch dimension
+        self._n = n  # data size
         self._A = A
         self._LU = None
         self._pivots = None
@@ -16,7 +17,7 @@ class PCShell:
             A_tensor = dlpack.from_dlpack(self._A)
             self._LU, self._pivots = torch.linalg.lu_factor(A_tensor)
         return self._LU, self._pivots
-    
+
     def reset_factor(self):
         self._LU = None
         self._pivots = None

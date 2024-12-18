@@ -86,7 +86,7 @@ if args.network == "sqnxt":
     from models.sqnxt_PETSc import SqNxt_23_1x, lr_schedule
 elif args.network == "resnet":
     from models.resnet_PETSc import ResNet18, lr_schedule
-if args.save == None:
+if args.save is None:
     args.save = "sqnxt/" + args.method + "_Nt_" + str(args.Nt) + "/"
 writer = SummaryWriter(args.save)
 

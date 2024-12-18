@@ -193,11 +193,11 @@ class ODEnet(nn.Module):
         # squeeze
         for _ in range(self.num_squeeze):
             dx = squeeze(dx, 2)
-        for l, layer in enumerate(self.layers):
+        for ll, layer in enumerate(self.layers):
             dx = layer(t, dx)
             # if not last layer, use nonlinearity
-            if l < len(self.layers) - 1:
-                dx = self.activation_fns[l](dx)
+            if ll < len(self.layers) - 1:
+                dx = self.activation_fns[ll](dx)
         # unsqueeze
         for _ in range(self.num_squeeze):
             dx = unsqueeze(dx, 2)

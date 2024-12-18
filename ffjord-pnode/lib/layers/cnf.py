@@ -125,14 +125,12 @@ def _revert_to_tuple(x, x0):
     idx = 0
     if len(x.shape) == 1:
         for x0_ in x0:
-            shape = x0_.shape
             out = out + (x[idx : idx + torch.numel(x0_)].view(*x0_.shape),)
             idx = idx + torch.numel(x0_)
     else:
         xdim = len(x.shape)
 
         for x0_ in x0:
-            shape = x0_.shape
             out = out + (x[:, idx : idx + torch.numel(x0_)].view(xdim, *x0_.shape),)
             idx = idx + torch.numel(x0_)
 
