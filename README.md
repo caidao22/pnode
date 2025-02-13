@@ -103,7 +103,7 @@ This will make PNODE store the solutions and stage values in DRAM at each time s
 If you found this tool useful in your research, please consider citing.
 
 ```
-@article{Zhang2024sinode},
+@article{Zhang2024sinode,
   author={Zhang, Hong and Liu, Ying and Maulik, Romit},
   journal={Proceedings of the AAAI Conference on Artificial Intelligence},
   title={Semi-Implicit Neural Ordinary Differential Equations},
@@ -115,7 +115,7 @@ If you found this tool useful in your research, please consider citing.
 }
 
 @article{Zhang2022pnode,
-  author={Zhang, Hong and Zhao, Wenjun},
+  author={Zhang, Hong and Zhao, Wenjun,
   journal={IEEE Transactions on Artificial Intelligence}, 
   title={A Memory-Efficient Neural Ordinary Differential Equation Framework Based on High-Level Adjoint Differentiation}, 
   year={2022},
