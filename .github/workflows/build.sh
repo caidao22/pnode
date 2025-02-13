@@ -14,6 +14,7 @@ python3 ./configure \
   --with-x=0 \
   --with-fc=0 \
   --download-openmpi \
+  --download-f2cblaslapack=1 \
   --with-scalar-type=${scalar} \
   --with-petsc4py \
   $extra_opts || (cat configure.log && exit 1)
