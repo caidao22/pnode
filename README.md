@@ -115,7 +115,7 @@ If you found this tool useful in your research, please consider citing.
 }
 
 @article{Zhang2022pnode,
-  author={Zhang, Hong and Zhao, Wenjun,
+  author={Zhang, Hong and Zhao, Wenjun},
   journal={IEEE Transactions on Artificial Intelligence}, 
   title={A Memory-Efficient Neural Ordinary Differential Equation Framework Based on High-Level Adjoint Differentiation}, 
   year={2022},
